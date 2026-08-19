@@ -1,0 +1,109 @@
+{{template "base_public" .}}
+{{define "content"}}
+<style>
+.legal-page{padding:128px 2rem 5rem;background:#000;min-height:100vh}
+.legal-inner{max-width:720px;margin:0 auto}
+.legal-title{font-size:clamp(1.8rem,3.5vw,2.4rem);font-weight:800;letter-spacing:-.02em;color:#e8ecf4;margin-bottom:.5rem}
+.legal-updated{font-size:13px;color:rgba(232,236,244,.45);margin-bottom:3rem}
+.legal-inner h2{font-size:1.15rem;font-weight:700;color:#7DDDFF;margin:2.25rem 0 .75rem}
+.legal-inner p{font-size:15px;line-height:1.75;color:rgba(232,236,244,.75);margin-bottom:1rem}
+.legal-inner ul{margin:0 0 1rem 1.25rem;color:rgba(232,236,244,.75);font-size:15px;line-height:1.75}
+.legal-inner li{margin-bottom:.5rem}
+.legal-inner a{color:#7DDDFF;border-bottom:1px solid rgba(125,220,255,.3)}
+</style>
+<div class="legal-page">
+  <div class="legal-inner">
+
+    {{if eq .Lang "ru"}}
+
+    <div class="legal-title">Политика конфиденциальности Ratatosk</div>
+    <div class="legal-updated">Последнее обновление: 28 июня 2026 г.</div>
+
+    <p>Ratatosk — мессенджер для надёжной связи в условиях нестабильного интернета.
+    Настоящая политика описывает, какие данные мы обрабатываем при использовании приложения.</p>
+
+    <h2>1. Какие данные мы собираем</h2>
+    <ul>
+      <li><strong>Учётная запись:</strong> адрес электронной почты и пароль (хранится в хешированном виде).</li>
+      <li><strong>Сообщения и файлы:</strong> текст, вложения и медиафайлы, передаваемые внутри чатов. Передача осуществляется по защищённому соединению (HTTPS).</li>
+      <li><strong>Профиль:</strong> отображаемое имя и аватар.</li>
+      <li><strong>Статус присутствия:</strong> признак онлайн / время последнего визита.</li>
+      <li><strong>Push-токен устройства:</strong> используется для доставки уведомлений о сообщениях и входящих звонках через Apple Push Notification service (APNs).</li>
+      <li><strong>Данные звонков:</strong> метаданные (участники, время начала и завершения) и аудио/видеопоток. Медиапоток маршрутизируется через сервер LiveKit.</li>
+      <li><strong>Bluetooth-ретрансляция:</strong> при отсутствии прямого интернет-соединения сообщения могут передаваться через близлежащие устройства по Bluetooth в виде зашифрованных блоков. Промежуточные устройства не имеют доступа к содержимому.</li>
+    </ul>
+
+    <h2>2. Как мы используем данные</h2>
+    <p>Данные используются исключительно для работы мессенджера: аутентификации, доставки сообщений, звонков и push-уведомлений. Мы не продаём данные пользователей и не используем их в рекламных целях.</p>
+
+    <h2>3. Передача третьим лицам</h2>
+    <ul>
+      <li><strong>Apple (APNs)</strong> — push-токен передаётся для доставки уведомлений и входящих звонков на iOS-устройства.</li>
+      <li><strong>LiveKit</strong> — аудио- и видеопоток звонков маршрутизируется через серверы LiveKit. Этот сервис получает только данные, необходимые для передачи медиапотока.</li>
+    </ul>
+    <p>Иная передача данных третьим лицам не осуществляется.</p>
+
+    <h2>4. Хранение и удаление данных</h2>
+    <p>Данные хранятся до тех пор, пока учётная запись активна. Для удаления учётной записи и всех связанных данных напишите на <a href="mailto:support@ratatosk.chat">support@ratatosk.chat</a>.</p>
+
+    <h2>5. Безопасность</h2>
+    <p>Все данные передаются по зашифрованному соединению (HTTPS). При Bluetooth-ретрансляции пакеты шифруются перед передачей через промежуточные устройства. Мы применяем технические меры для защиты данных от несанкционированного доступа.</p>
+
+    <h2>6. Дети</h2>
+    <p>Приложение не предназначено для детей младше 13 лет. Мы сознательно не собираем данные лиц этого возраста. Если вы считаете, что такие данные были нам переданы, свяжитесь с нами — мы их удалим.</p>
+
+    <h2>7. Изменения политики</h2>
+    <p>Мы можем обновлять эту политику. О существенных изменениях будет сообщено в приложении или по электронной почте.</p>
+
+    <h2>8. Контакты</h2>
+    <p>По вопросам конфиденциальности: <a href="mailto:support@ratatosk.chat">support@ratatosk.chat</a></p>
+
+    {{else}}
+
+    <div class="legal-title">Ratatosk Privacy Policy</div>
+    <div class="legal-updated">Last updated: June 28, 2026</div>
+
+    <p>Ratatosk is a messenger built for reliable communication over unstable internet connections.
+    This policy describes what information we handle when you use the app.</p>
+
+    <h2>1. Information We Collect</h2>
+    <ul>
+      <li><strong>Account:</strong> email address and password (stored as a hash, never in plain text).</li>
+      <li><strong>Messages and files:</strong> text, attachments, and media shared in chats. All data is transmitted over an encrypted connection (HTTPS).</li>
+      <li><strong>Profile:</strong> display name and avatar.</li>
+      <li><strong>Presence:</strong> online indicator and last-seen timestamp.</li>
+      <li><strong>Device push token:</strong> used to deliver message notifications and incoming call alerts via Apple Push Notification service (APNs).</li>
+      <li><strong>Call data:</strong> metadata (participants, start and end time) and audio/video stream. The media stream is routed through a LiveKit server.</li>
+      <li><strong>Bluetooth relay:</strong> when a direct internet connection is unavailable, messages may be forwarded through nearby devices over Bluetooth as encrypted blobs. Intermediate devices have no access to message content.</li>
+    </ul>
+
+    <h2>2. How We Use Your Information</h2>
+    <p>Your data is used solely to operate the messenger: authentication, message delivery, calls, and push notifications. We do not sell user data or use it for advertising.</p>
+
+    <h2>3. Third-Party Sharing</h2>
+    <ul>
+      <li><strong>Apple (APNs)</strong> — your push token is shared with Apple to deliver notifications and incoming call alerts to your iOS device.</li>
+      <li><strong>LiveKit</strong> — audio and video streams during calls are routed through LiveKit servers. LiveKit receives only what is needed to transmit the media stream.</li>
+    </ul>
+    <p>No other sharing of your data with third parties takes place.</p>
+
+    <h2>4. Data Retention and Deletion</h2>
+    <p>Data is retained for as long as your account is active. To delete your account and all associated data, contact us at <a href="mailto:support@ratatosk.chat">support@ratatosk.chat</a>.</p>
+
+    <h2>5. Security</h2>
+    <p>All data is transmitted over encrypted connections (HTTPS). Bluetooth relay payloads are encrypted before passing through intermediate devices. We apply technical measures to protect your data from unauthorised access, disclosure, and transfer.</p>
+
+    <h2>6. Children</h2>
+    <p>The app is not intended for children under 13. We do not knowingly collect data from children. If you believe such data was provided to us, please contact us and we will delete it.</p>
+
+    <h2>7. Changes to This Policy</h2>
+    <p>We may update this policy. Material changes will be communicated via the app or by email.</p>
+
+    <h2>8. Contact</h2>
+    <p>Privacy questions: <a href="mailto:support@ratatosk.chat">support@ratatosk.chat</a></p>
+
+    {{end}}
+
+  </div>
+</div>
+{{end}}

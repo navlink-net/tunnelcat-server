@@ -1,0 +1,150 @@
+{{define "content"}}
+<h1>Access Lists</h1>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:2rem;align-items:start">
+
+{{/* ── Whitelist ── */}}
+<div>
+<h2 style="margin-top:0">Traffic Whitelist</h2>
+<p class="text-muted" style="margin-bottom:1rem;font-size:13px">
+  Domains, wildcards, or CIDR ranges an exit will forward to a peer exit when it can't reach them directly.
+</p>
+<div class="card">
+  <form method="post" action="/admin/whitelist/add">
+    <div class="form-group">
+      <label>Type</label>
+      <select name="type">
+        <option value="domain">domain</option>
+        <option value="wildcard">wildcard</option>
+        <option value="cidr">cidr</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Value</label>
+      <input type="text" name="value" placeholder="e.g. netflix.com" required>
+    </div>
+    <button class="btn btn-primary btn-sm">Add</button>
+  </form>
+</div>
+{{if .Data.Whitelist}}
+<table>
+  <thead><tr><th>Type</th><th>Value</th><th>Added</th><th></th></tr></thead>
+  <tbody>
+  {{range .Data.Whitelist}}
+    <tr>
+      <td><span class="badge badge-approved">{{.Type}}</span></td>
+      <td><code>{{.Value}}</code></td>
+      <td class="text-muted">{{fmtTime .CreatedAt}}</td>
+      <td>
+        <form method="post" action="/admin/whitelist/delete" style="display:inline">
+          <input type="hidden" name="id" value="{{.ID}}">
+          <button class="btn btn-danger btn-sm" onclick="return confirm('Delete?')">Del</button>
+        </form>
+      </td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="text-muted mt2" style="font-size:13px">No entries. Peer-routing fallback will not be used.</p>
+{{end}}
+</div>
+
+{{/* ── Blacklist ── */}}
+<div>
+<h2 style="margin-top:0">Exit Address Blacklist</h2>
+<p class="text-muted" style="margin-bottom:1rem;font-size:13px">
+  Traffic to blacklisted addresses is silently dropped at exit nodes.
+</p>
+<div class="card">
+  <form method="post" action="/admin/blacklist/add">
+    <div class="form-group">
+      <label>Address (IP or hostname)</label>
+      <input type="text" name="addr" placeholder="e.g. 203.0.113.17" required>
+    </div>
+    <div class="form-group">
+      <label>Reason (optional)</label>
+      <input type="text" name="reason" placeholder="e.g. zombie relay">
+    </div>
+    <button class="btn btn-primary btn-sm">Add</button>
+  </form>
+</div>
+{{if .Data.Blacklist}}
+<table>
+  <thead><tr><th>Address</th><th>Reason</th><th>Added</th><th></th></tr></thead>
+  <tbody>
+  {{range .Data.Blacklist}}
+    <tr>
+      <td><code>{{.Addr}}</code></td>
+      <td class="text-muted">{{.Reason}}</td>
+      <td class="text-muted">{{fmtTime .CreatedAt}}</td>
+      <td>
+        <form method="post" action="/admin/blacklist/delete" style="display:inline">
+          <input type="hidden" name="id" value="{{.ID}}">
+          <button class="btn btn-danger btn-sm" onclick="return confirm('Remove?')">Del</button>
+        </form>
+      </td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="text-muted mt2" style="font-size:13px">No entries. All addresses are allowed.</p>
+{{end}}
+</div>
+
+</div>
+
+{{/* ── Torrent-blocked exits ── */}}
+<div style="margin-top:2rem">
+<h2 style="margin-top:0">Torrent-Blocked Exits</h2>
+<p class="text-muted" style="margin-bottom:1rem;font-size:13px">
+  BitTorrent peer connections are allowed directly on every exit by default,
+  including newly onboarded ones. Add an exit's own address (same address
+  used for the node registration) here to opt it OUT — its torrent traffic
+  will be forwarded to a peer exit not on this list, or rejected if none is
+  available.
+</p>
+<div class="card">
+  <form method="post" action="/admin/torrent-blocked/add">
+    <div class="form-group">
+      <label>Exit address</label>
+      <input type="text" name="addr" placeholder="e.g. 203.0.113.15:443" required>
+    </div>
+    <div class="form-group">
+      <label>Reason (optional)</label>
+      <input type="text" name="reason" placeholder="e.g. provider ToS forbids torrent">
+    </div>
+    <button class="btn btn-primary btn-sm">Add</button>
+  </form>
+</div>
+{{if .Data.TorrentBlocked}}
+<table>
+  <thead><tr><th>Address</th><th>Reason</th><th>Added</th><th></th></tr></thead>
+  <tbody>
+  {{range .Data.TorrentBlocked}}
+    <tr>
+      <td><code>{{.Addr}}</code></td>
+      <td class="text-muted">{{.Reason}}</td>
+      <td class="text-muted">{{fmtTime .CreatedAt}}</td>
+      <td>
+        <form method="post" action="/admin/torrent-blocked/delete" style="display:inline">
+          <input type="hidden" name="id" value="{{.ID}}">
+          <button class="btn btn-danger btn-sm" onclick="return confirm('Remove?')">Del</button>
+        </form>
+      </td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="text-muted mt2" style="font-size:13px">No entries. Torrent is allowed on every exit.</p>
+{{end}}
+</div>
+
+<style>
+@media(max-width:700px){
+  div[style*="grid-template-columns"]{grid-template-columns:1fr!important}
+}
+</style>
+{{end}}

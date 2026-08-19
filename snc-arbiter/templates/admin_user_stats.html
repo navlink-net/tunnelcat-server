@@ -1,0 +1,259 @@
+{{define "content"}}
+<div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.4rem;flex-wrap:wrap">
+  <a href="/admin?tab=users" class="btn">← Back</a>
+  <h1 style="margin:0;font-size:1.3rem">User: <code style="font-size:1rem">{{.Data.Username}}</code></h1>
+  {{if .Data.Stats}}{{if .Data.Stats.Suspended}}<span class="badge badge-rejected">suspended</span>{{end}}{{end}}
+</div>
+
+<div class="card" style="display:flex;gap:2rem;flex-wrap:wrap;align-items:center">
+  {{if .Data.Stats}}
+  <div>
+    <div class="text-muted">Data transferred (up / down)</div>
+    <div style="font-size:1.2rem;font-weight:700">{{fmtBytes .Data.Stats.BytesUp}} / {{fmtBytes .Data.Stats.BytesDown}}</div>
+  </div>
+  <div>
+    <div class="text-muted">Connections</div>
+    <div style="font-size:1.2rem;font-weight:700">{{.Data.Stats.Conns}}</div>
+  </div>
+  <div>
+    <div class="text-muted">Country</div>
+    <div style="font-size:1.2rem;font-weight:700">{{if .Data.Stats.Country}}{{.Data.Stats.Country}}{{else}}—{{end}}</div>
+  </div>
+  <div>
+    <div class="text-muted">First seen</div>
+    <div style="font-size:1rem">{{fmtTime .Data.Stats.FirstSeen}}</div>
+  </div>
+  <div>
+    <div class="text-muted">Last seen</div>
+    <div style="font-size:1rem">{{fmtTime .Data.Stats.LastSeen}}</div>
+  </div>
+  {{else}}
+  <div class="text-muted">No traffic recorded for this user yet.</div>
+  {{end}}
+  <div>
+    <div class="text-muted">Devices</div>
+    <div style="font-size:1.2rem;font-weight:700">{{len .Data.Devices}}</div>
+  </div>
+</div>
+
+<div class="card" style="overflow-x:auto">
+  <h2 style="margin-top:0">Devices / keys</h2>
+  <table style="min-width:600px">
+    <thead><tr><th>Device</th><th>Key ID</th><th>Status</th><th>Issued</th><th>Last seen</th><th>Plan</th></tr></thead>
+    <tbody>
+      {{if not .Data.Devices}}<tr><td colspan="6" class="text-muted">No keys issued.</td></tr>{{end}}
+      {{range .Data.Devices}}
+      <tr>
+        <td>{{if .DeviceName}}{{.DeviceName}}{{else}}<span class="text-muted">unnamed</span>{{end}}
+          {{if .DeviceID}}<div class="text-muted" style="font-size:11px;font-family:monospace">{{.DeviceID}}</div>{{end}}</td>
+        <td style="font-family:monospace;font-size:12px">{{.KeyID}}</td>
+        <td>{{if .Enabled}}<span class="badge badge-approved">enabled</span>{{else}}<span class="badge badge-rejected">disabled</span>{{end}}</td>
+        <td class="text-muted">{{fmtTime .IssuedAt}}</td>
+        <td class="text-muted">{{fmtTime .LastSeen}}</td>
+        <td>{{if .PaidUntil}}until {{fmtTimePtr .PaidUntil}}{{else}}perpetual{{end}}{{if .UnlimitedDevices}} <span class="badge badge-approved" title="unlimited devices">∞</span>{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+
+<div class="card" style="display:flex;gap:2rem;flex-wrap:wrap;align-items:center">
+  <h2 style="margin:0">Connection health per device</h2>
+  <div style="margin-left:auto;display:flex;gap:.4rem" id="csRangeToggle">
+    <button class="btn" data-range="24h">24h</button>
+    <button class="btn" data-range="7d">7d</button>
+    <button class="btn" data-range="30d">30d</button>
+  </div>
+</div>
+<div class="card"><h2 style="margin-top:0">Control pool size (TCP / UDP) by device</h2><canvas id="csChartPool" height="90"></canvas></div>
+<div class="card"><h2 style="margin-top:0">Unreachable controls by device</h2><canvas id="csChartUnreachable" height="90"></canvas></div>
+<div class="card"><h2 style="margin-top:0">Connects (manual / auto) by device</h2><canvas id="csChartConnects" height="90"></canvas></div>
+<div class="card"><h2 style="margin-top:0">Disconnects (manual / auto) by device</h2><canvas id="csChartDisconnects" height="90"></canvas></div>
+<div class="card"><h2 style="margin-top:0">Rejected sessions by device</h2><canvas id="csChartRejected" height="90"></canvas></div>
+<div class="card"><h2 style="margin-top:0">Time online (seconds, current session at report time) by device</h2><canvas id="csChartOnline" height="90"></canvas></div>
+
+<div class="card" style="display:flex;gap:2rem;flex-wrap:wrap;align-items:center">
+  <h2 style="margin:0">Session speed per device (BananaMeter probe)</h2>
+  <div style="margin-left:auto;display:flex;gap:.4rem" id="rangeToggle">
+    <button class="btn" data-range="24h">24h</button>
+    <button class="btn" data-range="7d">7d</button>
+    <button class="btn" data-range="30d">30d</button>
+  </div>
+</div>
+<div class="card"><h2 style="margin-top:0">Throughput (relative) by device</h2><canvas id="chartMbps" height="90"></canvas></div>
+<div class="card"><h2 style="margin-top:0">Ping (relative) by device</h2><canvas id="chartPing" height="90"></canvas></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+  var username = {{.Data.Username|js}};
+  var buttons = document.querySelectorAll('#rangeToggle button');
+  var curRange = '24h';
+  var PALETTE = ['#7c3aed','#0d6efd','#22c55e','#f97316','#eab308','#ef4444','#06b6d4','#ec4899'];
+
+  function fmtTs(ts){
+    var d = new Date(ts*1000);
+    return d.toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+  }
+
+  function makeChart(canvasId){
+    var ctx = document.getElementById(canvasId).getContext('2d');
+    return new Chart(ctx, {
+      type: 'line',
+      data: { labels: [], datasets: [] },
+      options: {
+        animation: false,
+        scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { beginAtZero: true } },
+        // position: 'bottom' so the per-device legend reads as a caption
+        // under the graph, not as part of the card header above the canvas.
+        plugins: { legend: { display: true, position: 'bottom' } }
+      }
+    });
+  }
+  var chartMbps = makeChart('chartMbps');
+  var chartPing = makeChart('chartPing');
+
+  function load(range){
+    fetch('/admin/api/users/' + encodeURIComponent(username) + '/bananameter?range=' + encodeURIComponent(range))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        var rows = data.buckets || [];
+        // Pivot: one row per (bucket, device_id) -> per-device series over the
+        // shared timeline (a device with no sample in a given bucket gets a gap).
+        var tsSet = [];
+        var tsSeen = {};
+        var byDevice = {};
+        rows.forEach(function(r){
+          if (!tsSeen[r.ts]) { tsSeen[r.ts] = true; tsSet.push(r.ts); }
+          var dev = r.device_id || '(unknown)';
+          if (!byDevice[dev]) byDevice[dev] = {};
+          byDevice[dev][r.ts] = r;
+        });
+        tsSet.sort(function(a,b){ return a-b; });
+        var labels = tsSet.map(fmtTs);
+
+        var devices = Object.keys(byDevice);
+        chartMbps.data.labels = labels;
+        chartPing.data.labels = labels;
+        chartMbps.data.datasets = devices.map(function(dev, i){
+          var color = PALETTE[i % PALETTE.length];
+          return { label: dev, data: tsSet.map(function(ts){ var r = byDevice[dev][ts]; return r ? r.avg_mbps : null; }),
+            borderColor: color, backgroundColor: color+'22', pointRadius: 0, tension: .2, spanGaps: true };
+        });
+        chartPing.data.datasets = devices.map(function(dev, i){
+          var color = PALETTE[i % PALETTE.length];
+          return { label: dev, data: tsSet.map(function(ts){ var r = byDevice[dev][ts]; return r ? r.avg_ping_ms : null; }),
+            borderColor: color, backgroundColor: color+'22', pointRadius: 0, tension: .2, spanGaps: true };
+        });
+        chartMbps.update();
+        chartPing.update();
+      });
+  }
+
+  buttons.forEach(function(btn){
+    btn.onclick = function(){
+      buttons.forEach(function(b){ b.classList.remove('btn-primary'); });
+      btn.classList.add('btn-primary');
+      curRange = btn.dataset.range;
+      load(curRange);
+    };
+  });
+  buttons[0].classList.add('btn-primary');
+  load(curRange);
+  setInterval(function(){ load(curRange); }, 15000);
+
+  // ── Connection-stats charts (pool size, unreachable, connects/disconnects,
+  // rejected sessions, time online) -- own range toggle, same per-device
+  // pivot pattern as the BananaMeter charts above, applied to
+  // /admin/api/users/{username}/conn-stats instead. Each chart shows one or
+  // two sub-metrics per device (e.g. "phone1 TCP" / "phone1 UDP"), so device
+  // colors repeat across a pair of adjacent palette entries per device.
+  var csButtons = document.querySelectorAll('#csRangeToggle button');
+  var csRange = '24h';
+
+  function makeLineChart(canvasId, beginAtZero){
+    var ctx = document.getElementById(canvasId).getContext('2d');
+    return new Chart(ctx, {
+      type: 'line',
+      data: { labels: [], datasets: [] },
+      options: {
+        animation: false,
+        scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { beginAtZero: beginAtZero !== false } },
+        plugins: { legend: { display: true, position: 'bottom' } }
+      }
+    });
+  }
+  var csChartPool         = makeLineChart('csChartPool');
+  var csChartUnreachable  = makeLineChart('csChartUnreachable');
+  var csChartConnects     = makeLineChart('csChartConnects');
+  var csChartDisconnects  = makeLineChart('csChartDisconnects');
+  var csChartRejected     = makeLineChart('csChartRejected');
+  var csChartOnline       = makeLineChart('csChartOnline');
+
+  // Builds one dataset per (device, field) pair, sharing a shared sorted
+  // timeline. fields: [{key, suffix, dash}] -- dash=true renders that
+  // sub-metric with a dashed line so two lines for the same device stay
+  // visually distinct even when they share a color.
+  function buildDeviceFieldDatasets(rows, tsSet, devices, fields){
+    var byDevice = {};
+    rows.forEach(function(r){
+      var dev = r.device_id || '(unknown)';
+      if (!byDevice[dev]) byDevice[dev] = {};
+      byDevice[dev][r.ts] = r;
+    });
+    var out = [];
+    devices.forEach(function(dev, i){
+      var color = PALETTE[i % PALETTE.length];
+      fields.forEach(function(f){
+        out.push({
+          label: dev + ' ' + f.suffix,
+          data: tsSet.map(function(ts){ var r = byDevice[dev] && byDevice[dev][ts]; return r ? r[f.key] : null; }),
+          borderColor: color, backgroundColor: color+'22', pointRadius: 0, tension: .2, spanGaps: true,
+          borderDash: f.dash ? [5,3] : undefined
+        });
+      });
+    });
+    return out;
+  }
+
+  function loadConnStats(range){
+    fetch('/admin/api/users/' + encodeURIComponent(username) + '/conn-stats?range=' + encodeURIComponent(range))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        var rows = data.buckets || [];
+        var tsSet = [], tsSeen = {}, devSet = [], devSeen = {};
+        rows.forEach(function(r){
+          if (!tsSeen[r.ts]) { tsSeen[r.ts] = true; tsSet.push(r.ts); }
+          var dev = r.device_id || '(unknown)';
+          if (!devSeen[dev]) { devSeen[dev] = true; devSet.push(dev); }
+        });
+        tsSet.sort(function(a,b){ return a-b; });
+        var labels = tsSet.map(fmtTs);
+
+        function apply(chart, fields){
+          chart.data.labels = labels;
+          chart.data.datasets = buildDeviceFieldDatasets(rows, tsSet, devSet, fields);
+          chart.update();
+        }
+        apply(csChartPool, [{key:'pool_tcp', suffix:'TCP'}, {key:'pool_udp', suffix:'UDP', dash:true}]);
+        apply(csChartUnreachable, [{key:'unreachable_controls', suffix:'unreachable'}]);
+        apply(csChartConnects, [{key:'connects_manual', suffix:'manual'}, {key:'connects_auto', suffix:'auto', dash:true}]);
+        apply(csChartDisconnects, [{key:'disconnects_manual', suffix:'manual'}, {key:'disconnects_auto', suffix:'auto', dash:true}]);
+        apply(csChartRejected, [{key:'rejected_sessions', suffix:'rejected'}]);
+        apply(csChartOnline, [{key:'seconds_online', suffix:'sec online'}]);
+      });
+  }
+  csButtons.forEach(function(btn){
+    btn.onclick = function(){
+      csButtons.forEach(function(b){ b.classList.remove('btn-primary'); });
+      btn.classList.add('btn-primary');
+      csRange = btn.dataset.range;
+      loadConnStats(csRange);
+    };
+  });
+  csButtons[0].classList.add('btn-primary');
+  loadConnStats(csRange);
+  setInterval(function(){ loadConnStats(csRange); }, 15000);
+})();
+</script>
+{{end}}

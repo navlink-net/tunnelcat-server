@@ -1,0 +1,130 @@
+{{define "base"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SNC Arbiter</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='18' fill='%231a1a2e'/%3E%3Ctext x='50' y='68' font-size='58' text-anchor='middle' fill='%237DDDFF' font-family='system-ui,sans-serif' font-weight='700'%3EA%3C/text%3E%3C/svg%3E">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;font-size:15px;background:#f5f5f5;color:#222}
+
+/* nav */
+nav{
+  background:#1a1a2e;color:#fff;
+  padding:0 1rem;
+  display:flex;align-items:center;
+  height:48px;position:relative;
+}
+nav .brand{font-weight:700;font-size:16px;color:#fff;margin-right:auto;white-space:nowrap}
+nav a{color:#ccc;text-decoration:none;font-size:14px;white-space:nowrap}
+nav a:hover{color:#fff}
+nav .nav-user{color:#aaa;white-space:nowrap;font-size:14px;margin-right:.75rem}
+
+/* hamburger — always visible */
+.nav-toggle{
+  background:none;border:none;color:#ccc;cursor:pointer;
+  font-size:1.4rem;padding:.2rem .5rem;margin-left:.5rem;
+}
+.nav-toggle:hover{color:#fff}
+
+/* dropdown menu */
+.nav-links{
+  display:none;
+  flex-direction:column;
+  position:absolute;top:48px;right:0;
+  background:#1a1a2e;
+  min-width:170px;
+  padding:.5rem 0;
+  z-index:200;
+  border:1px solid rgba(255,255,255,.1);
+  border-radius:0 0 6px 6px;
+  box-shadow:0 4px 12px rgba(0,0,0,.4);
+}
+.nav-links.open{display:flex}
+.nav-links a{
+  padding:.55rem 1.2rem;font-size:14px;width:100%;
+  display:block;color:#ccc;
+}
+.nav-links a:hover{background:rgba(255,255,255,.07);color:#fff}
+
+main{max-width:980px;margin:2rem auto;padding:0 1rem}
+h1{font-size:1.4rem;margin-bottom:1.2rem;color:#111}
+h2{font-size:1.1rem;margin:1.5rem 0 .8rem;color:#333}
+
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:6px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)}
+th{background:#f0f0f0;text-align:left;padding:.6rem .9rem;font-size:13px;color:#555}
+td{padding:.6rem .9rem;font-size:14px;border-top:1px solid #eee}
+tr:hover td{background:#fafafa}
+
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600}
+.badge-pending{background:#fff3cd;color:#856404}
+.badge-approved{background:#d1e7dd;color:#0a5c36}
+.badge-rejected{background:#f8d7da;color:#842029}
+.badge-suspended{background:#e2e3e5;color:#41464b}
+
+.btn{display:inline-block;padding:.35rem .8rem;font-size:13px;border-radius:4px;border:none;cursor:pointer;text-decoration:none}
+.btn-primary{background:#0d6efd;color:#fff}.btn-primary:hover{background:#0b5ed7;color:#fff}
+.btn-success{background:#198754;color:#fff}.btn-success:hover{background:#157347;color:#fff}
+.btn-danger{background:#dc3545;color:#fff}.btn-danger:hover{background:#bb2d3b;color:#fff}
+.btn-warning{background:#ffc107;color:#222}.btn-warning:hover{background:#ffca2c}
+
+.card{background:#fff;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.1);padding:1.2rem 1.5rem;margin-bottom:1rem}
+.form-group{margin-bottom:1rem}
+label{display:block;font-size:13px;color:#555;margin-bottom:.3rem}
+input[type=text],input[type=password],input[type=number],input[type=date],input[type=email],select,textarea{
+  width:100%;padding:.4rem .6rem;border:1px solid #ccc;border-radius:4px;font-size:14px;
+}
+.alert{padding:.75rem 1rem;border-radius:4px;margin-bottom:1rem}
+.alert-danger{background:#f8d7da;color:#842029}
+.mt1{margin-top:.5rem}.mt2{margin-top:1rem}.mt3{margin-top:1.5rem}
+.text-muted{color:#888;font-size:13px}
+
+/* mobile */
+@media(max-width:700px){
+  main{padding:0 .5rem;margin:1rem auto}
+  h1{font-size:1.15rem}
+  h2{font-size:1rem}
+  .card{padding:.85rem .9rem}
+  th,td{padding:.45rem .55rem;font-size:13px}
+}
+</style>
+</head>
+<body>
+<nav>
+  <span class="brand">SNC Arbiter</span>
+  {{if .User}}
+  <span class="nav-user">{{.User.Username}}</span>
+  <button class="nav-toggle" id="navToggle" aria-label="Menu">☰</button>
+  <div class="nav-links" id="navLinks">
+    {{if eq .User.Role "admin"}}
+    <a href="/admin">Dashboard</a>
+    <a href="/admin/infra">Infra</a>
+    <a href="/admin/pending">Pending</a>
+    <a href="/admin/update">Updates</a>
+    <a href="/admin/key">Keys</a>
+    <a href="/admin/whitelist">Lists</a>
+    <a href="/admin/clubs">Clubs</a>
+    <a href="/admin/service-blocks">Region Blocks</a>
+    <a href="/admin/anon-bootstrap">Anon Bootstrap</a>
+    <a href="/admin/apps">Apps</a>
+    <a href="/admin/notify">Notify</a>
+    {{end}}
+    <a href="/admin/logout" style="border-top:1px solid rgba(255,255,255,.1);margin-top:.3rem;padding-top:.7rem;color:#888">Sign out</a>
+  </div>
+  <script>
+  (function(){
+    var btn=document.getElementById('navToggle'),menu=document.getElementById('navLinks');
+    btn.onclick=function(e){e.stopPropagation();menu.classList.toggle('open');};
+    document.addEventListener('click',function(){menu.classList.remove('open');});
+  })();
+  </script>
+  {{end}}
+</nav>
+<main>
+{{if .Flash}}<div class="alert alert-danger">{{.Flash}}</div>{{end}}
+{{if .FlashOK}}<div class="alert" style="background:#d1e7dd;color:#0a5c36">{{.FlashOK}}</div>{{end}}
+{{template "content" .}}
+</main>
+</body>
+</html>{{end}}

@@ -1,0 +1,47 @@
+{{define "content"}}
+<h1>Pending</h1>
+
+<div class="card" style="max-width:400px;margin-bottom:1.5rem">
+  <div class="form-group" style="margin:0">
+    <input type="text" id="psearch" placeholder="Search by email…" style="width:100%" oninput="loadPending()" autocomplete="off">
+  </div>
+</div>
+<div id="pending-wrap"><p class="text-muted">Loading…</p></div>
+
+<script>
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+let pendTimer=null;
+function loadPending(){clearTimeout(pendTimer);pendTimer=setTimeout(doLoadPending,200);}
+function doLoadPending(){
+  const q=encodeURIComponent((document.getElementById('psearch')||{value:''}).value.trim());
+  fetch('/admin/api/users/pending?q='+q).then(r=>r.json()).then(renderPending)
+    .catch(e=>{document.getElementById('pending-wrap').innerHTML='<p class="text-muted">Error: '+e+'</p>';});
+}
+function renderPending(rows){
+  const wrap=document.getElementById('pending-wrap');
+  if(!rows||!rows.length){wrap.innerHTML='<p class="text-muted">No pending registrations.</p>';return;}
+  let html='<table><thead><tr><th>Email</th><th>Registered (UTC)</th><th>Promo codes</th><th>Subscription</th><th>Paid until</th><th></th></tr></thead><tbody>';
+  for(const r of rows){
+    const u=esc(r.username);
+    const sub=r.sub_status?'<span class="badge badge-approved">'+esc(r.sub_status)+'</span>':'<span class="text-muted">—</span>';
+    const paid=r.paid_until?esc(r.paid_until):'<span class="text-muted">—</span>';
+    html+='<tr>'+
+      '<td>'+u+'</td>'+
+      '<td class="text-muted">'+esc(r.created_at)+'</td>'+
+      '<td class="text-muted">'+(r.promo_codes||'<span class="text-muted">—</span>')+'</td>'+
+      '<td>'+sub+'</td>'+
+      '<td>'+paid+'</td>'+
+      '<td><button class="btn btn-success" style="font-size:12px;padding:2px 10px" onclick="confirmEmail(\''+u+'\')">Confirm</button></td>'+
+      '</tr>';
+  }
+  wrap.innerHTML=html+'</tbody></table>';
+}
+function confirmEmail(username){
+  if(!confirm('Confirm '+username+'? They will receive an activation email.'))return;
+  fetch('/admin/api/users/'+encodeURIComponent(username)+'/confirm-email',{method:'POST'})
+    .then(r=>r.json()).then(d=>{if(d.ok)doLoadPending();else alert('Error: '+JSON.stringify(d));}).catch(e=>alert(e));
+}
+doLoadPending();
+setInterval(doLoadPending,60000);
+</script>
+{{end}}

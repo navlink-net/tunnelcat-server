@@ -1,0 +1,93 @@
+{{define "content"}}
+<h1>Client downloads</h1>
+
+{{if .Flash}}<div class="alert alert-success">{{.Flash}}</div>{{end}}
+
+<div class="card">
+  <h2>Windows client (shortnerdcat.exe)</h2>
+  {{if .Data.Windows.Hash}}
+  <table style="margin-bottom:1rem">
+    <tr><th>SHA-256</th><td style="font-family:monospace;font-size:12px;word-break:break-all">{{.Data.Windows.Hash}}</td></tr>
+    <tr><th>Size</th><td>{{.Data.Windows.Size}} bytes</td></tr>
+    <tr><th>Uploaded</th><td>{{fmtTime .Data.Windows.ModTime}}</td></tr>
+  </table>
+  {{else}}
+  <p class="text-muted" style="margin-bottom:1rem">No file uploaded yet.</p>
+  {{end}}
+  <form method="post" action="/admin/downloads/upload" enctype="multipart/form-data">
+    <input type="hidden" name="binary_type" value="windows">
+    <div class="form-group">
+      <label>Windows installer / binary (.exe)</label>
+      <input type="file" name="file" required accept=".exe">
+    </div>
+    <button class="btn btn-primary" type="submit">Upload Windows client</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Android client (shortnerdcat.apk)</h2>
+  {{if .Data.Android.Hash}}
+  <table style="margin-bottom:1rem">
+    <tr><th>SHA-256</th><td style="font-family:monospace;font-size:12px;word-break:break-all">{{.Data.Android.Hash}}</td></tr>
+    <tr><th>Size</th><td>{{.Data.Android.Size}} bytes</td></tr>
+    <tr><th>Uploaded</th><td>{{fmtTime .Data.Android.ModTime}}</td></tr>
+  </table>
+  {{else}}
+  <p class="text-muted" style="margin-bottom:1rem">No file uploaded yet.</p>
+  {{end}}
+  <form method="post" action="/admin/downloads/upload" enctype="multipart/form-data">
+    <input type="hidden" name="binary_type" value="android">
+    <div class="form-group">
+      <label>Android package (.apk)</label>
+      <input type="file" name="file" required accept=".apk">
+    </div>
+    <button class="btn btn-primary" type="submit">Upload Android client</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Proekt Android (proekt.apk)</h2>
+  {{if .Data.ProektAndroid.Hash}}
+  <table style="margin-bottom:1rem">
+    <tr><th>SHA-256</th><td style="font-family:monospace;font-size:12px;word-break:break-all">{{.Data.ProektAndroid.Hash}}</td></tr>
+    <tr><th>Size</th><td>{{.Data.ProektAndroid.Size}} bytes</td></tr>
+    <tr><th>Uploaded</th><td>{{fmtTime .Data.ProektAndroid.ModTime}}</td></tr>
+    {{if .Data.ProektAndroid.Version}}<tr><th>Version</th><td>{{.Data.ProektAndroid.Version}}</td></tr>{{end}}
+  </table>
+  {{else}}
+  <p class="text-muted" style="margin-bottom:1rem">No file uploaded yet.</p>
+  {{end}}
+  <form method="post" action="/admin/downloads/upload" enctype="multipart/form-data">
+    <input type="hidden" name="binary_type" value="proekt-android">
+    <div class="form-group">
+      <label>Proekt Android package (.apk)</label>
+      <input type="file" name="file" required accept=".apk">
+    </div>
+    <button class="btn btn-primary" type="submit">Upload Proekt APK</button>
+  </form>
+  <p style="margin-top:.75rem;font-size:13px;color:var(--text-muted)">Served at <a href="/partners/download/apk">/partners/download/apk</a> · Distribution page: <a href="/partners">/partners</a></p>
+</div>
+
+<div class="card">
+  <h2>Lisinder Android (lisinder.apk)</h2>
+  {{if .Data.LisinderAndroid.Hash}}
+  <table style="margin-bottom:1rem">
+    <tr><th>SHA-256</th><td style="font-family:monospace;font-size:12px;word-break:break-all">{{.Data.LisinderAndroid.Hash}}</td></tr>
+    <tr><th>Size</th><td>{{.Data.LisinderAndroid.Size}} bytes</td></tr>
+    <tr><th>Uploaded</th><td>{{fmtTime .Data.LisinderAndroid.ModTime}}</td></tr>
+    {{if .Data.LisinderAndroid.Version}}<tr><th>Version</th><td>{{.Data.LisinderAndroid.Version}}</td></tr>{{end}}
+  </table>
+  {{else}}
+  <p class="text-muted" style="margin-bottom:1rem">No file uploaded yet.</p>
+  {{end}}
+  <form method="post" action="/admin/downloads/upload" enctype="multipart/form-data">
+    <input type="hidden" name="binary_type" value="lisinder-android">
+    <div class="form-group">
+      <label>Lisinder Android package (.apk)</label>
+      <input type="file" name="file" required accept=".apk">
+    </div>
+    <button class="btn btn-primary" type="submit">Upload Lisinder APK</button>
+  </form>
+  <p style="margin-top:.75rem;font-size:13px;color:var(--text-muted)">Served at <a href="/partners/lisinder/download/apk">/partners/lisinder/download/apk</a> · Control page: <a href="/partners/lisinder">/partners/lisinder</a></p>
+</div>
+{{end}}

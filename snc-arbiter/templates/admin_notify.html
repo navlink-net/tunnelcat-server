@@ -1,0 +1,150 @@
+{{define "content"}}
+<h1>Notifications</h1>
+
+<div class="card" style="margin-bottom:1.5rem">
+  <p class="text-muted" style="margin-bottom:.75rem">
+    Notifications are delivered to all clients via the manifest. Each message appears once per client (idempotent by ID).
+    Messages expire 24 h after creation — clients that have been offline longer will not see them.
+  </p>
+  <form method="POST" action="/admin/notify/add">
+    <div class="form-group">
+      <label>Message</label>
+      <textarea name="message" rows="3" placeholder="Enter notification text for all clients…" required style="resize:vertical"></textarea>
+    </div>
+    <button type="submit" class="btn btn-primary">Send to all clients</button>
+  </form>
+</div>
+
+<h1>Email broadcast</h1>
+<div class="card" style="margin-bottom:1.5rem">
+  <p class="text-muted" style="margin-bottom:.75rem">
+    Sends a real email (from The Tunnel Cat &lt;cat@navlink.net&gt;) to every registered user
+    (<strong id="bc-count">…</strong> right now). Test it on yourself first — there's no undo once "Send to all" runs.
+  </p>
+  <div class="form-group">
+    <label>Subject</label>
+    <input type="text" id="bc-subject" placeholder="Email subject…">
+  </div>
+  <div class="form-group">
+    <label>Body (plain text, blank line = new paragraph)</label>
+    <textarea id="bc-body" rows="10" placeholder="Email body…" style="resize:vertical"></textarea>
+  </div>
+  <div class="form-group" style="display:flex;gap:.5rem;align-items:center;max-width:420px">
+    <input type="text" id="bc-test-addr" placeholder="your@address for test send" style="flex:1">
+    <button type="button" class="btn" onclick="bcSendTest()">Send test</button>
+  </div>
+  <div style="margin-top:.75rem">
+    <button type="button" class="btn btn-primary" onclick="bcSendAll()">Send to all</button>
+  </div>
+  <div id="bc-result" style="margin-top:.75rem;font-size:14px"></div>
+  <div id="bc-progress" style="display:none;margin-top:.75rem">
+    <p id="bc-progress-line" style="margin:0 0 .4rem"></p>
+    <pre id="bc-log" style="font-size:11px;background:#1a1a2e;color:#adf;padding:.5rem;border-radius:4px;max-height:200px;overflow-y:auto;margin:0"></pre>
+  </div>
+</div>
+
+{{if .Data.Notifications}}
+<div class="card">
+  <p class="text-muted" style="margin-bottom:.75rem">Active (expires within 24 h of creation):</p>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Message</th>
+        <th style="white-space:nowrap">Created</th>
+        <th>By</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Data.Notifications}}
+      <tr>
+        <td style="max-width:460px;word-break:break-word">{{.Message}}</td>
+        <td style="white-space:nowrap;font-size:13px">{{.CreatedAtFmt}}</td>
+        <td style="font-size:13px">{{.CreatedBy}}</td>
+        <td style="text-align:right">
+          <form method="POST" action="/admin/notify/delete" style="display:inline">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <button type="submit" class="btn"
+                    style="background:#dc3545;color:#fff;border:none;padding:.2rem .55rem;font-size:13px"
+                    onclick="return confirm('Delete this notification?')">Remove</button>
+          </form>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{else}}
+<div class="card">
+  <p class="text-muted">No active notifications.</p>
+</div>
+{{end}}
+
+<script>
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+fetch('/admin/api/broadcast/preview').then(r=>r.json()).then(d=>{
+  document.getElementById('bc-count').textContent = d.count + ' user' + (d.count===1?'':'s');
+}).catch(()=>{ document.getElementById('bc-count').textContent = '?'; });
+
+function bcDraft() {
+  return {
+    subject: document.getElementById('bc-subject').value.trim(),
+    body: document.getElementById('bc-body').value.trim()
+  };
+}
+
+function bcSendTest() {
+  var draft = bcDraft();
+  var addr = document.getElementById('bc-test-addr').value.trim();
+  var res = document.getElementById('bc-result');
+  if (!draft.subject || !draft.body) { res.innerHTML = '<span style="color:#dc3545">Subject and body are required.</span>'; return; }
+  if (!addr) { res.innerHTML = '<span style="color:#dc3545">Enter an address for the test send.</span>'; return; }
+  res.innerHTML = 'Sending test…';
+  fetch('/admin/api/broadcast/test', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({subject: draft.subject, body: draft.body, test: addr})})
+    .then(r=>r.json().then(d=>({ok:r.ok, d:d})))
+    .then(function(x){
+      if (!x.ok) { res.innerHTML = '<span style="color:#dc3545">Error: '+esc(x.d.error||'send failed')+'</span>'; return; }
+      res.innerHTML = '<span style="color:#198754">Test sent to '+esc(addr)+'.</span>';
+    }).catch(e=>{ res.innerHTML = '<span style="color:#dc3545">Network error: '+e+'</span>'; });
+}
+
+function bcSendAll() {
+  var draft = bcDraft();
+  var res = document.getElementById('bc-result');
+  if (!draft.subject || !draft.body) { res.innerHTML = '<span style="color:#dc3545">Subject and body are required.</span>'; return; }
+  var count = document.getElementById('bc-count').textContent;
+  if (!confirm('Send this email to ALL ' + count + '? This cannot be undone. Sure you sent yourself a test first?')) return;
+  res.innerHTML = 'Starting…';
+  fetch('/admin/api/broadcast/send', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({subject: draft.subject, body: draft.body})})
+    .then(r=>r.json().then(d=>({ok:r.ok, d:d})))
+    .then(function(x){
+      if (!x.ok) { res.innerHTML = '<span style="color:#dc3545">Error: '+esc(x.d.error||'could not start')+'</span>'; return; }
+      res.innerHTML = '<span style="color:#0d6efd">Campaign "'+esc(x.d.campaign)+'" started.</span>';
+      document.getElementById('bc-progress').style.display = '';
+      bcPollStatus();
+    }).catch(e=>{ res.innerHTML = '<span style="color:#dc3545">Network error: '+e+'</span>'; });
+}
+
+function bcPollStatus() {
+  (function tick() {
+    fetch('/admin/api/broadcast/status').then(r=>r.json()).then(function(d){
+      if (!d.campaign) return;
+      document.getElementById('bc-progress').style.display = '';
+      document.getElementById('bc-progress-line').textContent =
+        (d.running ? 'Sending' : 'Done') + ' — campaign "' + d.campaign + '": ' +
+        d.sent + ' sent, ' + d.failed + ' failed, ' + d.skipped + ' skipped, ' + d.total + ' total';
+      document.getElementById('bc-log').textContent = d.log || '';
+      if (d.running) setTimeout(tick, 2000);
+    }).catch(()=>{ setTimeout(tick, 5000); });
+  })();
+}
+
+// Resume showing progress if a campaign is already running when the page loads.
+fetch('/admin/api/broadcast/status').then(r=>r.json()).then(function(d){
+  if (d.campaign && (d.running || d.done)) bcPollStatus();
+}).catch(()=>{});
+</script>
+{{end}}

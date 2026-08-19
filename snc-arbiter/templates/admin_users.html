@@ -1,0 +1,308 @@
+{{define "content"}}
+<h1>User Stats</h1>
+
+<div class="card" style="max-width:400px;margin-bottom:1.5rem">
+  <div class="form-group" style="margin:0">
+    <input type="text" id="search" placeholder="Search by username…" style="width:100%" oninput="load()" autocomplete="off">
+  </div>
+</div>
+
+<h2>Connections</h2>
+<div id="stats-wrap">
+  <p class="text-muted">Loading…</p>
+</div>
+
+<script>
+function fmtBytes(n) {
+  if (n < 1024) return n + ' B';
+  const units = ['KB','MB','GB','TB'];
+  let i = -1;
+  do { n /= 1024; i++; } while (n >= 1024 && i < units.length - 1);
+  return n.toFixed(1) + ' ' + units[i];
+}
+
+let timer = null;
+function load() {
+  clearTimeout(timer);
+  timer = setTimeout(doLoad, 200);
+}
+
+function doLoad() {
+  const q = encodeURIComponent(document.getElementById('search').value.trim());
+  fetch('/admin/api/users/stats?q=' + q)
+    .then(r => r.json())
+    .then(data => {
+      renderStats(data.users || []);
+    })
+    .catch(e => {
+      document.getElementById('stats-wrap').innerHTML = '<p class="text-muted">Error: ' + e + '</p>';
+    });
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Stats table ───────────────────────────────────────────────────────────────
+
+function renderStats(rows) {
+  rows.sort((a, b) => a.username.localeCompare(b.username));
+  const wrap = document.getElementById('stats-wrap');
+  if (!rows.length) { wrap.innerHTML = '<p class="text-muted">No data.</p>'; return; }
+  let html = '<table><thead><tr>' +
+    '<th></th><th>Username</th><th>Status</th><th>Country</th><th>First seen</th><th>Last seen</th>' +
+    '<th>Up</th><th>Down</th><th>Connections</th>' +
+    '</tr></thead><tbody>';
+  for (const r of rows) {
+    const u = esc(r.username);
+    const suspendBtn = r.suspended
+      ? '<button class="btn btn-success" style="font-size:11px;padding:1px 6px" onclick="resumeUser(\'' + u + '\')">Resume</button>'
+      : '<button class="btn btn-warning" style="font-size:11px;padding:1px 6px" onclick="suspendUser(\'' + u + '\')">Suspend</button>';
+    const statusBadge = r.suspended
+      ? '<span class="badge badge-rejected" style="font-size:11px">Suspended</span>'
+      : '';
+    html += '<tr id="urow-' + u + '">' +
+      '<td style="padding:4px 6px;white-space:nowrap">' +
+        '<button class="btn btn-primary" style="font-size:12px;padding:2px 8px" onclick="toggleKeys(event,\'' + u + '\')">▶ Keys</button> ' +
+        '<button class="btn" style="font-size:12px;padding:2px 8px" onclick="openEmailModal(\'' + u + '\')">✉</button>' +
+      '</td>' +
+      '<td>' + u + '</td>' +
+      '<td>' + statusBadge + ' ' + suspendBtn + '</td>' +
+      '<td>' + (r.country ? '<span class="badge badge-approved">' + esc(r.country) + '</span>' : '<span class="text-muted">—</span>') + '</td>' +
+      '<td class="text-muted">' + esc(r.first_seen) + '</td>' +
+      '<td class="text-muted">' + esc(r.last_seen) + '</td>' +
+      '<td>' + fmtBytes(r.bytes_up) + '</td>' +
+      '<td>' + fmtBytes(r.bytes_down) + '</td>' +
+      '<td>' + r.conns + '</td>' +
+      '</tr>' +
+      '<tr id="krow-' + u + '" style="display:none"><td colspan="8" style="padding:0 0 12px 2rem">' +
+        '<div id="kpanel-' + u + '" style="padding:.6rem 1rem;background:#1a1a2e;border-radius:4px"></div>' +
+      '</td></tr>';
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+// ── Keys panel (inline, per user) ────────────────────────────────────────────
+
+const openPanels = new Set();
+
+function toggleKeys(evt, username) {
+  evt.stopPropagation();
+  const krow   = document.getElementById('krow-' + username);
+  const btn    = evt.currentTarget;
+  if (openPanels.has(username)) {
+    openPanels.delete(username);
+    krow.style.display = 'none';
+    btn.textContent = '▶ Keys';
+    return;
+  }
+  openPanels.add(username);
+  krow.style.display = '';
+  btn.textContent = '▼ Keys';
+  loadKeys(username);
+}
+
+function loadKeys(username) {
+  const panel = document.getElementById('kpanel-' + username);
+  panel.innerHTML = '<p class="text-muted" style="margin:.4rem 0">Loading…</p>';
+  fetch('/admin/api/users/' + encodeURIComponent(username) + '/keys')
+    .then(r => r.json())
+    .then(keys => renderKeysPanel(username, keys))
+    .catch(e => { panel.innerHTML = '<p class="text-muted">Error: ' + e + '</p>'; });
+}
+
+function renderKeysPanel(username, keys) {
+  const panel = document.getElementById('kpanel-' + username);
+  const u = esc(username);
+  let html = '<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.6rem">' +
+    '<button class="btn btn-danger"  style="font-size:12px;padding:3px 10px" onclick="setUserEnabled(\'' + u + '\',false)">Disable user</button>' +
+    '<button class="btn btn-success" style="font-size:12px;padding:3px 10px" onclick="setUserEnabled(\'' + u + '\',true)">Enable user</button>' +
+    '<button class="btn btn-primary" style="font-size:12px;padding:3px 10px" onclick="showIssueForm(\'' + u + '\')">+ Issue key</button>' +
+    '</div>' +
+    '<div id="issue-form-' + u + '" style="display:none;margin-bottom:.8rem">' +
+      '<div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">' +
+        '<input type="password" id="issue-pwd-' + u + '" placeholder="User password" autocomplete="new-password" style="padding:4px 8px;border-radius:4px;border:1px solid #444;background:#111;color:#eee;width:220px">' +
+        '<button class="btn btn-success" style="font-size:12px;padding:3px 10px" onclick="doIssueKey(\'' + u + '\')">Generate</button>' +
+        '<button class="btn" style="font-size:12px;padding:3px 10px" onclick="hideIssueForm(\'' + u + '\')">Cancel</button>' +
+      '</div>' +
+      '<div id="issue-result-' + u + '" style="margin-top:.5rem"></div>' +
+    '</div>';
+
+  if (!keys.length) {
+    html += '<p class="text-muted" style="margin:.2rem 0">No keys registered for this user.</p>';
+  } else {
+    html += '<table style="font-size:13px;width:100%"><thead><tr>' +
+      '<th>Key prefix</th><th>Device</th><th>Source</th><th>Bound</th><th>Last seen</th><th>Status</th><th>Actions</th>' +
+      '</tr></thead><tbody>';
+    for (const k of keys) {
+      const prefix = esc(k.key_id.substring(0, 8)) + '…';
+      const device = k.device_name ? esc(k.device_name) : '<span class="text-muted">—</span>';
+      const source = k.source ? esc(k.source) : '<span class="text-muted">—</span>';
+      const bound  = k.bound_at  || '—';
+      const seen   = k.last_seen || '—';
+      const badge  = k.enabled
+        ? '<span class="badge badge-approved">enabled</span>'
+        : '<span class="badge badge-rejected">disabled</span>';
+      const toggleBtn = k.enabled
+        ? '<button class="btn btn-warning" style="font-size:11px;padding:1px 6px;margin-right:3px" onclick="setKeyEnabled(\'' + esc(k.key_id) + '\',false,\'' + u + '\')">Disable</button>'
+        : '<button class="btn btn-success"  style="font-size:11px;padding:1px 6px;margin-right:3px" onclick="setKeyEnabled(\'' + esc(k.key_id) + '\',true,\'' + u + '\')">Enable</button>';
+      const unbindBtn = k.device_id
+        ? '<button class="btn btn-primary" style="font-size:11px;padding:1px 6px" onclick="adminUnbind(\'' + esc(k.key_id) + '\',\'' + u + '\')">Unbind</button>'
+        : '';
+      html += '<tr><td><code>' + prefix + '</code></td><td>' + device + '</td>' +
+        '<td class="text-muted">' + source + '</td>' +
+        '<td class="text-muted">' + esc(bound) + '</td>' +
+        '<td class="text-muted">' + esc(seen)  + '</td>' +
+        '<td>' + badge + '</td>' +
+        '<td>' + toggleBtn + unbindBtn + '</td></tr>';
+    }
+    html += '</tbody></table>';
+  }
+  panel.innerHTML = html;
+}
+
+function showIssueForm(username) {
+  document.getElementById('issue-form-' + username).style.display = '';
+  document.getElementById('issue-pwd-' + username).focus();
+}
+
+function hideIssueForm(username) {
+  document.getElementById('issue-form-' + username).style.display = 'none';
+  document.getElementById('issue-result-' + username).innerHTML = '';
+}
+
+function doIssueKey(username) {
+  const pwd = document.getElementById('issue-pwd-' + username).value;
+  if (!pwd) { alert('Enter the user password.'); return; }
+  const resultEl = document.getElementById('issue-result-' + username);
+  resultEl.innerHTML = '<span class="text-muted">Generating…</span>';
+  fetch('/admin/api/users/' + encodeURIComponent(username) + '/issue-key', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({password: pwd}),
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (!d.key) { resultEl.innerHTML = '<span style="color:#f66">Error: ' + esc(JSON.stringify(d)) + '</span>'; return; }
+      resultEl.innerHTML =
+        '<div style="margin:.4rem 0"><strong>New key (key_id: ' + esc(d.key_id.substring(0,8)) + '…):</strong></div>' +
+        '<textarea readonly style="width:100%;height:80px;font-size:11px;font-family:monospace;background:#111;color:#adf;border:1px solid #444;padding:6px;border-radius:4px">' +
+        esc(d.key) + '</textarea>' +
+        '<button class="btn btn-primary" style="font-size:12px;padding:3px 10px;margin-top:.3rem" ' +
+        'onclick="navigator.clipboard.writeText(\'' + d.key.replace(/'/g,"\\'") + '\').then(()=>alert(\'Copied!\'))">Copy</button>';
+      // Reload keys list to show the new key.
+      loadKeys(username);
+    })
+    .catch(e => { resultEl.innerHTML = '<span style="color:#f66">Network error: ' + e + '</span>'; });
+}
+
+function setKeyEnabled(keyID, enable, username) {
+  const action = enable ? 'enable' : 'disable';
+  fetch('/admin/api/keys/' + encodeURIComponent(keyID) + '/' + action, {method:'POST'})
+    .then(r => r.json())
+    .then(d => { if (d.ok) loadKeys(username); else alert('Error: ' + JSON.stringify(d)); })
+    .catch(e => alert('Network error: ' + e));
+}
+
+function adminUnbind(keyID, username) {
+  if (!confirm('Unbind device from this key?')) return;
+  fetch('/admin/api/keys/' + encodeURIComponent(keyID) + '/unbind', {method:'POST'})
+    .then(r => r.json())
+    .then(d => { if (d.ok) loadKeys(username); else alert('Error: ' + JSON.stringify(d)); })
+    .catch(e => alert('Network error: ' + e));
+}
+
+function setUserEnabled(username, enable) {
+  const action = enable ? 'enable' : 'disable';
+  fetch('/admin/api/users/' + encodeURIComponent(username) + '/' + action, {method:'POST'})
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) alert('User ' + username + ' ' + (enable ? 'enabled' : 'disabled') + '.');
+      else alert('Error: ' + JSON.stringify(d));
+    })
+    .catch(e => alert('Network error: ' + e));
+}
+
+function suspendUser(username) {
+  if (!confirm('Suspend ' + username + '? They will not be able to connect.')) return;
+  fetch('/admin/api/users/' + encodeURIComponent(username) + '/disable', {method:'POST'})
+    .then(r => r.json())
+    .then(d => { if (d.ok) doLoad(); else alert('Error: ' + JSON.stringify(d)); })
+    .catch(e => alert('Network error: ' + e));
+}
+
+function resumeUser(username) {
+  fetch('/admin/api/users/' + encodeURIComponent(username) + '/enable', {method:'POST'})
+    .then(r => r.json())
+    .then(d => { if (d.ok) doLoad(); else alert('Error: ' + JSON.stringify(d)); })
+    .catch(e => alert('Network error: ' + e));
+}
+
+doLoad();
+setInterval(doLoad, 60000);
+
+// ── Email modal ───────────────────────────────────────────────────────────────
+
+let _emailUser = '';
+
+function openEmailModal(username) {
+  _emailUser = username;
+  document.getElementById('em-user').textContent = username;
+  document.getElementById('em-subject').value = '';
+  document.getElementById('em-body').value = '';
+  document.getElementById('em-status').textContent = '';
+  document.getElementById('em-status').style.color = '';
+  document.getElementById('emailModal').style.display = 'flex';
+  setTimeout(() => document.getElementById('em-subject').focus(), 50);
+}
+
+function closeEmailModal() {
+  document.getElementById('emailModal').style.display = 'none';
+}
+
+function doEmailSend() {
+  const subject = document.getElementById('em-subject').value.trim();
+  const body    = document.getElementById('em-body').value.trim();
+  const status  = document.getElementById('em-status');
+  if (!subject || !body) { status.style.color = '#f77'; status.textContent = 'Subject and body required.'; return; }
+  status.style.color = ''; status.textContent = 'Sending…';
+  fetch('/admin/api/users/' + encodeURIComponent(_emailUser) + '/email', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({subject, body}),
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        status.style.color = '#7df'; status.textContent = 'Sent!';
+        setTimeout(closeEmailModal, 1200);
+      } else {
+        status.style.color = '#f77'; status.textContent = 'Error: ' + JSON.stringify(d);
+      }
+    })
+    .catch(e => { status.style.color = '#f77'; status.textContent = 'Network error: ' + e; });
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeEmailModal(); });
+</script>
+
+<div id="emailModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:999;align-items:center;justify-content:center">
+  <div style="background:#1a1a2e;border:1px solid rgba(125,220,255,.25);border-radius:8px;padding:1.5rem;width:min(500px,92vw);box-shadow:0 8px 40px rgba(0,0,0,.8)">
+    <h3 style="margin:0 0 1rem;color:#7DDDFF;font-size:16px">Email to <span id="em-user"></span></h3>
+    <div style="margin-bottom:.75rem">
+      <label style="display:block;font-size:12px;color:#aaa;margin-bottom:.3rem">Subject</label>
+      <input id="em-subject" type="text" style="width:100%;box-sizing:border-box;padding:6px 8px;background:#111;color:#eee;border:1px solid #444;border-radius:4px;font-size:14px">
+    </div>
+    <div style="margin-bottom:1rem">
+      <label style="display:block;font-size:12px;color:#aaa;margin-bottom:.3rem">Body</label>
+      <textarea id="em-body" rows="7" style="width:100%;box-sizing:border-box;padding:6px 8px;background:#111;color:#eee;border:1px solid #444;border-radius:4px;resize:vertical;font-size:14px"></textarea>
+    </div>
+    <div style="display:flex;gap:.5rem;justify-content:flex-end;align-items:center">
+      <span id="em-status" style="font-size:13px;flex:1"></span>
+      <button class="btn" onclick="closeEmailModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="doEmailSend()">Send</button>
+    </div>
+  </div>
+</div>
+{{end}}

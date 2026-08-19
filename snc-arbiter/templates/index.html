@@ -1,0 +1,46 @@
+{{define "content"}}
+<h1>Network status</h1>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem">
+  <div class="card" style="text-align:center">
+    <div style="font-size:2.5rem;font-weight:700;color:#198754">{{len .Data.LiveControls}}</div>
+    <div class="text-muted">control nodes online</div>
+  </div>
+  <div class="card" style="text-align:center">
+    <div style="font-size:2.5rem;font-weight:700;color:#0d6efd">{{len .Data.LiveExits}}</div>
+    <div class="text-muted">exit nodes online</div>
+  </div>
+</div>
+
+{{if .Data.LiveControls}}
+<h2>Control nodes</h2>
+<table>
+  <tr><th>Address</th><th>RTT, ms</th><th>Load</th><th>Heartbeat</th></tr>
+  {{range .Data.LiveControls}}
+  <tr>
+    <td>{{stripPort .Addr}}</td>
+    <td>{{printf "%.1f" .RTTms}}</td>
+    <td>{{printf "%.2f" .Load}}</td>
+    <td>{{fmtTimePtr .LastHeartbeat}}</td>
+  </tr>
+  {{end}}
+</table>
+{{end}}
+
+{{if .Data.LiveExits}}
+<h2 class="mt3">Exit nodes</h2>
+<table>
+  <tr><th>Address</th><th>RTT, ms</th><th>Load</th><th>Bandwidth, Mbps</th><th>Heartbeat</th></tr>
+  {{range .Data.LiveExits}}
+  <tr>
+    <td>{{stripPort .Addr}}</td>
+    <td>{{printf "%.1f" .RTTms}}</td>
+    <td>{{printf "%.2f" .Load}}</td>
+    <td>{{printf "%.0f" .BandwidthMbps}}</td>
+    <td>{{fmtTimePtr .LastHeartbeat}}</td>
+  </tr>
+  {{end}}
+</table>
+{{end}}
+
+{{end}}

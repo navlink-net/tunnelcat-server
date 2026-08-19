@@ -1,0 +1,51 @@
+{{template "base_public" .}}
+
+{{define "content"}}
+<div class="auth-wrap">
+  <div class="auth-card">
+    <h1>{{if eq .Lang "ru"}}Вход{{else}}Sign in{{end}}</h1>
+
+    {{if .Flash}}
+      {{if .Data}}
+        <div class="auth-alert auth-alert-error">
+          {{.Flash}}
+          <form method="post" action="/resend-confirmation" style="margin-top:.6rem">
+            <input type="hidden" name="email" value="{{.Data}}">
+            <input type="hidden" name="origin" value="login">
+            <input type="hidden" name="captcha_token" value="{{.CaptchaToken}}">
+            <label style="display:block;font-size:12px;color:rgba(232,236,244,.5);margin-bottom:.3rem">
+              {{if eq .Lang "ru"}}Решите пример: {{.CaptchaQ}}{{else}}Solve: {{.CaptchaQ}}{{end}}
+            </label>
+            <input type="text" name="captcha_answer" inputmode="numeric" autocomplete="off" required placeholder="?"
+                   style="width:5rem;margin-bottom:.5rem">
+            <br>
+            <button type="submit" style="background:none;border:none;padding:0;color:rgba(125,220,255,.8);cursor:pointer;font-size:13px;text-decoration:underline">
+              {{if eq .Lang "ru"}}Отправить письмо повторно{{else}}Resend confirmation email{{end}}
+            </button>
+          </form>
+        </div>
+      {{else}}
+        <div class="auth-alert auth-alert-{{if eq .Flash "Password updated. You can now sign in."}}success{{else if eq .Flash "Пароль изменён. Теперь можно войти."}}success{{else}}error{{end}}">{{.Flash}}</div>
+      {{end}}
+    {{end}}
+
+    <form method="post" action="/login">
+      <input type="hidden" name="next" value="{{.Next}}">
+      <div class="auth-field">
+        <label>{{if eq .Lang "ru"}}Email{{else}}Email{{end}}</label>
+        <input type="email" name="username" autocomplete="email" autofocus required placeholder="you@example.com">
+      </div>
+      <div class="auth-field">
+        <label>{{if eq .Lang "ru"}}Пароль{{else}}Password{{end}}</label>
+        <input type="password" name="password" autocomplete="current-password" required>
+      </div>
+      <button class="btn-auth">{{if eq .Lang "ru"}}Войти{{else}}Sign in{{end}}</button>
+    </form>
+
+    <div class="auth-links">
+      <a href="/forgot-password">{{if eq .Lang "ru"}}Забыли пароль?{{else}}Forgot password?{{end}}</a><br>
+      {{if eq .Lang "ru"}}Нет аккаунта? <a href="/signup">Зарегистрироваться</a>{{else}}No account? <a href="/signup">Sign up</a>{{end}}
+    </div>
+  </div>
+</div>
+{{end}}

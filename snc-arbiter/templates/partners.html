@@ -1,0 +1,238 @@
+{{template "base_public" .}}
+
+{{define "content"}}
+<div class="pt-page">
+
+  <!-- Hero -->
+  <div class="pt-hero">
+    <div class="pt-hero-content">
+      <div class="pt-hero-badge">{{if eq .Lang "ru"}}Медиаплатформа{{else}}Media Platform{{end}}</div>
+      <h1 class="pt-hero-title">{{if eq .Lang "ru"}}Проект{{else}}Proekt{{end}}</h1>
+      <p class="pt-hero-sub">
+        {{if eq .Lang "ru"}}
+          Читайте Проект.Медиа и Агентов.Медиа без ограничений.<br>Работает там, где другие приложения не открываются.
+        {{else}}
+          Read Proekt.Media and Agents.Media without restrictions.<br>Works where other apps are blocked.
+        {{end}}
+      </p>
+    </div>
+  </div>
+
+  <!-- Download -->
+  <div class="pt-dl-section">
+    <h2 class="pt-dl-title">{{if eq .Lang "ru"}}Скачать приложение{{else}}Download the App{{end}}</h2>
+    <p class="pt-dl-sub">{{if eq .Lang "ru"}}Доступно для Android{{else}}Available for Android{{end}}</p>
+
+    <div class="pt-dl-cards">
+      <div class="pt-dl-card">
+        <div class="pt-dl-icon">
+          <svg width="36" height="36" viewBox="0 0 48 48" fill="none">
+            <rect x="13" y="16" width="22" height="26" rx="3" stroke="#7DDDFF" stroke-width="1.5"/>
+            <path d="M20 14l-4-5M28 14l4-5" stroke="#7DDDFF" stroke-width="1.5" stroke-linecap="round"/>
+            <circle cx="24" cy="38" r="1.5" fill="#7DDDFF"/>
+            <line x1="19" y1="20" x2="29" y2="20" stroke="#7DDDFF" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="pt-dl-label">Android</div>
+        <div class="pt-dl-meta">Android 8.0+</div>
+        {{if .Data.ApkAvailable}}
+        <a href="/partners/download/apk" class="pt-dl-btn" download="proekt.apk">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="flex-shrink:0">
+            <path d="M8 2v9M4 8l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 13h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+          {{if eq .Lang "ru"}}Скачать .apk{{else}}Download .apk{{end}}
+        </a>
+        {{else}}
+        <span class="pt-dl-soon">{{if eq .Lang "ru"}}Скоро{{else}}Coming soon{{end}}</span>
+        {{end}}
+      </div>
+    </div>
+
+    <div class="pt-coming-soon">
+      <span class="pt-cs-label">{{if eq .Lang "ru"}}Скоро{{else}}Coming soon{{end}}</span>
+      <span class="pt-cs-item">iOS</span>
+      <span class="pt-cs-dot">·</span>
+      <span class="pt-cs-item">Windows</span>
+    </div>
+  </div>
+
+  <!-- Hero: Lisinder -->
+  <div class="pt-hero">
+    <div class="pt-hero-content">
+      <div class="pt-hero-badge">{{if eq .Lang "ru"}}Медиаплатформа{{else}}Media Platform{{end}}</div>
+      <h1 class="pt-hero-title">Лисиндер</h1>
+      <p class="pt-hero-sub">
+        {{if eq .Lang "ru"}}
+          Читайте Лисиндер без ограничений.<br>Работает там, где другие приложения не открываются.
+        {{else}}
+          Read Lisinder without restrictions.<br>Works where other apps are blocked.
+        {{end}}
+      </p>
+    </div>
+  </div>
+
+  <div class="pt-dl-section">
+    <h2 class="pt-dl-title">{{if eq .Lang "ru"}}Скачать приложение{{else}}Download the App{{end}}</h2>
+    <p class="pt-dl-sub">{{if eq .Lang "ru"}}Доступно для Android{{else}}Available for Android{{end}}</p>
+
+    <div class="pt-dl-cards">
+      <div class="pt-dl-card">
+        <div class="pt-dl-icon">
+          <svg width="36" height="36" viewBox="0 0 48 48" fill="none">
+            <rect x="13" y="16" width="22" height="26" rx="3" stroke="#7DDDFF" stroke-width="1.5"/>
+            <path d="M20 14l-4-5M28 14l4-5" stroke="#7DDDFF" stroke-width="1.5" stroke-linecap="round"/>
+            <circle cx="24" cy="38" r="1.5" fill="#7DDDFF"/>
+            <line x1="19" y1="20" x2="29" y2="20" stroke="#7DDDFF" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="pt-dl-label">Android</div>
+        <div class="pt-dl-meta">Android 8.0+</div>
+        {{if .Data.LisinderApkAvailable}}
+        <a href="/partners/lisinder/download/apk" class="pt-dl-btn" download="lisinder.apk">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="flex-shrink:0">
+            <path d="M8 2v9M4 8l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 13h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+          {{if eq .Lang "ru"}}Скачать .apk{{else}}Download .apk{{end}}
+        </a>
+        {{else}}
+        <span class="pt-dl-soon">{{if eq .Lang "ru"}}Скоро{{else}}Coming soon{{end}}</span>
+        {{end}}
+      </div>
+    </div>
+
+    <div class="pt-coming-soon">
+      <span class="pt-cs-label">{{if eq .Lang "ru"}}Скоро{{else}}Coming soon{{end}}</span>
+      <span class="pt-cs-item">iOS</span>
+      <span class="pt-cs-dot">·</span>
+      <span class="pt-cs-item">Windows</span>
+    </div>
+  </div>
+
+</div>
+
+<style>
+.pt-page{
+  min-height:calc(100vh - 46px);
+  display:flex;flex-direction:column;align-items:center;
+  background:#000;
+  padding-bottom:3rem;
+}
+
+/* ── Hero ───────────────────────────────────────── */
+.pt-hero{
+  width:100%;
+  padding:5rem 2rem 4rem;
+  text-align:center;
+  background:radial-gradient(ellipse 80% 50% at 50% 0%, rgba(79,195,247,.18) 0%, transparent 70%);
+  margin-bottom:3rem;
+}
+.pt-hero-badge{
+  display:inline-block;
+  font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:#7DDDFF;
+  border:1px solid rgba(125,220,255,.3);
+  border-radius:20px;
+  padding:.28rem 1rem;
+  margin-bottom:1rem;
+  background:rgba(125,220,255,.06);
+}
+.pt-hero-title{
+  font-size:clamp(2.8rem,7vw,5rem);
+  font-weight:800;
+  letter-spacing:-.04em;
+  background:linear-gradient(130deg,#fff 20%,#7DDDFF 60%,#7C4DFF);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  margin-bottom:.75rem;line-height:1;
+}
+.pt-hero-sub{
+  font-size:clamp(14px,1.8vw,17px);
+  line-height:1.75;
+  color:rgba(232,236,244,.55);
+  max-width:540px;
+  margin:0 auto;
+}
+
+/* ── Download ───────────────────────────────────── */
+.pt-dl-section{
+  display:flex;flex-direction:column;align-items:center;
+  width:100%;
+  padding:0 1.5rem;
+}
+.pt-dl-title{
+  font-size:clamp(1.5rem,3vw,2rem);
+  font-weight:800;letter-spacing:-.03em;
+  background:linear-gradient(130deg,#e8ecf4 30%,#7DDDFF);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  margin-bottom:.5rem;text-align:center;
+}
+.pt-dl-sub{
+  font-size:14px;color:rgba(232,236,244,.4);
+  margin-bottom:2rem;letter-spacing:.02em;
+}
+.pt-dl-cards{
+  display:flex;flex-wrap:wrap;gap:1.5rem;justify-content:center;
+  margin-bottom:1.75rem;
+}
+.pt-dl-card{
+  flex:1 1 220px;max-width:260px;
+  background:rgba(8,8,22,.85);
+  border:1px solid rgba(125,220,255,.14);
+  border-radius:16px;
+  padding:1.75rem 1.5rem 1.5rem;
+  display:flex;flex-direction:column;align-items:center;text-align:center;
+  backdrop-filter:blur(12px);
+  transition:border-color .2s,box-shadow .2s;
+}
+.pt-dl-card:hover{
+  border-color:rgba(125,220,255,.32);
+  box-shadow:0 0 40px rgba(125,220,255,.08);
+}
+.pt-dl-icon{
+  width:60px;height:60px;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(125,220,255,.05);
+  border:1px solid rgba(125,220,255,.1);
+  border-radius:14px;
+  margin-bottom:1rem;
+}
+.pt-dl-label{font-size:1.1rem;font-weight:700;color:#e8ecf4;margin-bottom:.3rem}
+.pt-dl-meta{font-size:13px;color:rgba(232,236,244,.35);margin-bottom:1.25rem}
+.pt-dl-btn{
+  display:inline-flex;align-items:center;gap:.6rem;
+  padding:.7rem 1.75rem;
+  border-radius:8px;
+  font-size:14px;font-weight:600;
+  background:linear-gradient(120deg,#4FC3F7,#7C4DFF);
+  color:#fff;
+  box-shadow:0 0 20px rgba(79,195,247,.25);
+  transition:box-shadow .2s,transform .15s;
+  white-space:nowrap;
+}
+.pt-dl-btn:hover{box-shadow:0 0 36px rgba(79,195,247,.45);transform:translateY(-2px)}
+.pt-dl-soon{
+  font-size:13px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+  color:rgba(125,220,255,.4);
+  border:1px solid rgba(125,220,255,.15);
+  border-radius:6px;
+  padding:.4rem 1rem;
+}
+
+/* Coming soon strip */
+.pt-coming-soon{
+  display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;justify-content:center;
+  padding:.7rem 1.5rem;
+  background:rgba(125,220,255,.03);
+  border:1px solid rgba(125,220,255,.1);
+  border-radius:10px;
+  max-width:480px;width:100%;
+}
+.pt-cs-label{
+  font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;
+  color:rgba(125,220,255,.4);margin-right:.25rem;
+}
+.pt-cs-item{font-size:14px;font-weight:500;color:rgba(232,236,244,.35)}
+.pt-cs-dot{color:rgba(232,236,244,.15)}
+</style>
+{{end}}

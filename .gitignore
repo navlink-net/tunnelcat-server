@@ -1,0 +1,42 @@
+# ── Secrets ──────────────────────────────────────────────────────────────────
+.env
+**/.env
+tools/.env
+Hetzner.md
+
+# ── Go binaries ──────────────────────────────────────────────────────────────
+*.exe
+*.exe~
+/snc-arbiter/snc-arbiter
+/snc-control/snc-control
+/snc-exit/snc-exit
+
+# ── Python bytecode cache ──────────────────────────────────────────────────
+__pycache__/
+*.pyc
+
+# ── Android ──────────────────────────────────────────────────────────────────
+.gradle/
+**/.gradle/
+app/build/
+**/app/build/
+local.properties
+**/local.properties
+*.apk
+*.aab
+
+# ── OS / editor ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+*.iml
+
+# ── tools/yc_rotate.py: local credentials + runtime state, never commit ──────
+tools/sa-key.json
+tools/yc_rotate_state.json
+
+# ── tools/cloudru_rotate.py: same, for cloud.ru ───────────────────────────────
+tools/cloudru-key.json
+tools/cloudru_rotate_state.json

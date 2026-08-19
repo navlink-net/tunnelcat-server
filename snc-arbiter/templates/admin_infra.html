@@ -1,0 +1,173 @@
+{{define "content"}}
+<h1>Infrastructure nodes</h1>
+
+<div id="flash-msg" style="display:none" class="alert"></div>
+
+<table id="node-table">
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Type</th>
+      <th>Address</th>
+      <th>Description</th>
+      <th>Location</th>
+      <th>Provider</th>
+      <th>Status</th>
+      <th>RTT</th>
+      <th style="width:160px"></th>
+    </tr>
+  </thead>
+  <tbody id="node-body">
+    <tr><td colspan="9" class="text-muted">Loading…</td></tr>
+  </tbody>
+</table>
+
+<div class="card" style="margin-top:1.5rem;max-width:520px">
+  <h2 style="margin-top:0">Add node</h2>
+  <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:flex-end">
+    <div class="form-group" style="flex:0 0 90px;margin:0">
+      <label>Type</label>
+      <select id="add-type">
+        <option value="control">control</option>
+        <option value="exit">exit</option>
+      </select>
+    </div>
+    <div class="form-group" style="flex:1;min-width:150px;margin:0">
+      <label>Address (host:port)</label>
+      <input type="text" id="add-addr" placeholder="1.2.3.4:443">
+    </div>
+    <div class="form-group" style="flex:2;min-width:150px;margin:0">
+      <label>Description</label>
+      <input type="text" id="add-desc" placeholder="SNC.Control.0007 / Country">
+    </div>
+    <button class="btn btn-success" onclick="addNode()" style="margin-bottom:1px">Add</button>
+  </div>
+</div>
+
+<script>
+const ADMIN_TOKEN = '';  // uses session cookie; X-Admin-Token not needed for browser sessions
+
+function flash(msg, ok) {
+  const el = document.getElementById('flash-msg');
+  el.textContent = msg;
+  el.className = 'alert ' + (ok ? '' : 'alert-danger');
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 4000);
+}
+
+function rttLabel(ms) {
+  if (!ms) return '—';
+  return ms.toFixed(1) + ' ms';
+}
+
+function renderRows(nodes) {
+  const tbody = document.getElementById('node-body');
+  if (!nodes || nodes.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" class="text-muted">No nodes.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = nodes.map(n => {
+    const dot = n.online
+      ? '<span style="color:#198754;font-size:18px" title="online">●</span>'
+      : '<span style="color:#dc3545;font-size:18px" title="offline">●</span>';
+    return `<tr id="row-${n.id}">
+      <td>${n.id}</td>
+      <td>${n.type}</td>
+      <td>
+        <span class="view-addr">${n.addr}</span>
+        <input class="edit-addr" type="text" value="${n.addr}" style="display:none;width:100%">
+      </td>
+      <td>
+        <span class="view-desc">${n.description || ''}</span>
+        <input class="edit-desc" type="text" value="${n.description || ''}" style="display:none;width:100%">
+      </td>
+      <td>
+        <span class="view-location text-muted">${n.location || '—'}</span>
+        <input class="edit-location" type="text" placeholder="Germany, Falkenstein" value="${n.location || ''}" style="display:none;width:100%">
+      </td>
+      <td>
+        <span class="view-provider text-muted">${n.provider || '—'}</span>
+        <input class="edit-provider" type="text" placeholder="Hetzner Online GmbH" value="${n.provider || ''}" style="display:none;width:100%">
+      </td>
+      <td>${dot} ${n.status}</td>
+      <td>${rttLabel(n.rtt_ms)}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-warning btn-edit" onclick="startEdit(${n.id})" style="font-size:12px;padding:.25rem .6rem">Edit</button>
+        <button class="btn btn-success btn-save" onclick="saveEdit(${n.id})" style="display:none;font-size:12px;padding:.25rem .6rem">Save</button>
+        <button class="btn btn-save" onclick="cancelEdit(${n.id})" style="display:none;font-size:12px;padding:.25rem .6rem;background:#6c757d;color:#fff">Cancel</button>
+        <button class="btn btn-danger" onclick="deleteNode(${n.id})" style="font-size:12px;padding:.25rem .6rem">Delete</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function startEdit(id) {
+  const row = document.getElementById('row-' + id);
+  ['addr','desc','location','provider'].forEach(f => {
+    row.querySelector('.view-' + f).style.display = 'none';
+    row.querySelector('.edit-' + f).style.display = '';
+  });
+  row.querySelector('.btn-edit').style.display = 'none';
+  row.querySelectorAll('.btn-save').forEach(b => b.style.display = '');
+}
+
+function cancelEdit(id) {
+  loadNodes();
+}
+
+async function saveEdit(id) {
+  const row = document.getElementById('row-' + id);
+  const addr = row.querySelector('.edit-addr').value.trim();
+  const desc = row.querySelector('.edit-desc').value.trim();
+  const location = row.querySelector('.edit-location').value.trim();
+  const provider = row.querySelector('.edit-provider').value.trim();
+  if (!addr) { flash('Address required', false); return; }
+  const resp = await fetch('/api/admin/node/' + id + '/update', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({addr, description: desc, location, provider}),
+  });
+  const data = await resp.json();
+  if (!resp.ok || !data.ok) { flash('Error: ' + (data.error || resp.status), false); return; }
+  flash('Saved', true);
+  loadNodes();
+}
+
+async function deleteNode(id) {
+  if (!confirm('Delete node #' + id + '?')) return;
+  const resp = await fetch('/api/admin/node/' + id + '/delete', {method: 'POST'});
+  const data = await resp.json();
+  if (!resp.ok || !data.ok) { flash('Error: ' + (data.error || resp.status), false); return; }
+  flash('Deleted', true);
+  loadNodes();
+}
+
+async function addNode() {
+  const type = document.getElementById('add-type').value;
+  const addr = document.getElementById('add-addr').value.trim();
+  const desc = document.getElementById('add-desc').value.trim();
+  if (!addr) { flash('Address required', false); return; }
+  const resp = await fetch('/api/admin/node', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({type, addr, description: desc}),
+  });
+  const data = await resp.json();
+  if (!resp.ok || data.error) { flash('Error: ' + (data.error || resp.status), false); return; }
+  flash('Added: token=' + data.token, true);
+  document.getElementById('add-addr').value = '';
+  document.getElementById('add-desc').value = '';
+  loadNodes();
+}
+
+async function loadNodes() {
+  const resp = await fetch('/api/admin/nodes');
+  if (!resp.ok) return;
+  const data = await resp.json();
+  renderRows(data.nodes);
+}
+
+loadNodes();
+setInterval(loadNodes, 30000);
+</script>
+{{end}}

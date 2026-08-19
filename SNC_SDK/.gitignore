@@ -1,0 +1,12 @@
+*.exe
+*.dll
+*.a
+*.so
+bin/
+obj/
+.build/
+.swiftpm/
+__pycache__/
+*.egg-info/
+.gradle/
+build/

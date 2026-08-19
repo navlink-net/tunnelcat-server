@@ -1,0 +1,414 @@
+{{template "base_public" .}}
+
+{{define "content"}}
+<div class="bb-page">
+
+  <!-- Hero -->
+  <div class="bb-hero">
+    <img src="/static/blackbadger.png" alt="BlackBadger" class="bb-hero-logo">
+    <h1 class="bb-hero-title">BlackBadger</h1>
+    <p class="bb-hero-tag">
+      {{if eq .Lang "ru"}}Корпоративный SOCKS5-прокси{{else}}Corporate SOCKS5 Proxy{{end}}
+    </p>
+    <p class="bb-hero-desc">
+      {{if eq .Lang "ru"}}
+        Высокопроизводительный прокси для корпоративных клиентов и пользователей,
+        которым нужна маршрутизация на уровне приложений без установки VPN-клиента.
+        Совместим с любым ПО с поддержкой SOCKS5: браузеры, мессенджеры, корпоративные системы.
+      {{else}}
+        High-performance SOCKS5 proxy for businesses and users who need app-level routing
+        without installing a VPN client. Compatible with any SOCKS5-capable software:
+        browsers, messengers, and enterprise systems.
+      {{end}}
+    </p>
+  </div>
+
+  <div class="bb-body">
+
+    <!-- Setup guides -->
+    <div class="bb-section">
+      <h2 class="bb-section-h">
+        {{if eq .Lang "ru"}}Как подключиться{{else}}Setup Guide{{end}}
+      </h2>
+
+      <!-- Platform tabs -->
+      <div class="bb-os-tabs">
+        <button class="bb-os-tab active" onclick="switchOS('ios', this)">iOS</button>
+        <button class="bb-os-tab" onclick="switchOS('macos', this)">macOS</button>
+        <button class="bb-os-tab" onclick="switchOS('windows', this)">Windows</button>
+        <button class="bb-os-tab" onclick="switchOS('android', this)">Android</button>
+        <button class="bb-os-tab" onclick="switchOS('linux', this)">Linux</button>
+      </div>
+
+      <!-- Servers (shared across all platforms) -->
+      <div class="bb-srv-wrap">
+        <div class="bb-srv-label">{{if eq .Lang "ru"}}Серверы — выберите любой{{else}}Servers — pick any one{{end}}</div>
+        <div class="bb-srv">
+          bb0.navlink.net : 8080<br>
+          bb1.navlink.net : 8080<br>
+          bb2.navlink.net : 8080<br>
+          bb3.navlink.net : 8080<br>
+          bb4.navlink.net : 8080
+        </div>
+      </div>
+
+      <!-- iOS: Shadowrocket + Potatso Lite -->
+      <div id="os-ios" class="bb-os-panel">
+        <div class="bb-app-label">Shadowrocket &mdash; {{if eq .Lang "ru"}}системный прокси ($2.99){{else}}system-wide ($2.99){{end}}</div>
+        <ol class="bb-steps">
+          <li>{{if eq .Lang "ru"}}Скачайте <a href="https://apps.apple.com/app/shadowrocket/id932747118" target="_blank" rel="noopener">Shadowrocket</a> из App Store ($2.99){{else}}Download <a href="https://apps.apple.com/app/shadowrocket/id932747118" target="_blank" rel="noopener">Shadowrocket</a> from the App Store ($2.99){{end}}</li>
+          <li>{{if eq .Lang "ru"}}Нажмите «+» &rarr; выберите тип <b>SOCKS5</b>{{else}}Tap «+» &rarr; choose type <b>SOCKS5</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Введите адрес сервера (из списка выше) и порт <b>8080</b>{{else}}Enter the server address (from the list above) and port <b>8080</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Логин: ваш Navlink email. Пароль: пароль от личного кабинета{{else}}Username: your Navlink email. Password: your account password{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Нажмите «Подключить» — при запросе разрешите VPN-конфигурацию{{else}}Tap Connect — allow the VPN configuration when prompted{{end}}</li>
+        </ol>
+        <div class="bb-app-label bb-app-label-alt">Potatso Lite &mdash; {{if eq .Lang "ru"}}системный прокси (бесплатно), подробная инструкция{{else}}system-wide (free), detailed walkthrough{{end}}</div>
+        <ol class="bb-steps">
+          <li>{{if eq .Lang "ru"}}Откройте <b>App Store</b> на iPhone (синяя иконка с белой буквой «A»){{else}}Open the <b>App Store</b> on your iPhone (blue icon with a white «A»){{end}}</li>
+          <li>{{if eq .Lang "ru"}}Нажмите на значок поиска (лупа) внизу экрана и введите <b>Potatso Lite</b>{{else}}Tap the search icon (magnifying glass) at the bottom and type <b>Potatso Lite</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Откройте страницу приложения (или сразу по <a href="https://apps.apple.com/app/potatso-lite/id1239860606" target="_blank" rel="noopener">этой ссылке</a>) и нажмите «Загрузить» ({{else}}Open the app page (or use <a href="https://apps.apple.com/app/potatso-lite/id1239860606" target="_blank" rel="noopener">this direct link</a>) and tap «Get» ({{end}}<b>{{if eq .Lang "ru"}}бесплатно{{else}}free{{end}}</b>{{if eq .Lang "ru"}}){{else}}){{end}}</li>
+          <li>{{if eq .Lang "ru"}}Система может попросить Face ID, отпечаток или пароль Apple ID — это обычное подтверждение установки, ничего страшного{{else}}iOS may ask for Face ID, Touch ID, or your Apple ID password — that's the standard install confirmation, nothing unusual{{end}}</li>
+          <li>{{if eq .Lang "ru"}}После установки нажмите «Открыть» (или найдите значок Potatso Lite на рабочем столе и коснитесь его){{else}}Once installed, tap «Open» (or find the Potatso Lite icon on your home screen and tap it){{end}}</li>
+          <li>{{if eq .Lang "ru"}}Если приложение спросит про уведомления — можно смело нажать «Не разрешать», это не требуется для работы{{else}}If it asks to send you notifications, «Don't Allow» is fine — not required for it to work{{end}}</li>
+          <li>{{if eq .Lang "ru"}}На главном экране приложения нажмите значок «<b>+</b>» в правом верхнем углу{{else}}On the app's main screen, tap the «<b>+</b>» in the top-right corner{{end}}</li>
+          <li>{{if eq .Lang "ru"}}В открывшемся списке выберите самый нижний пункт — <b>Manual Input</b>{{else}}From the list that appears, pick the last option — <b>Manual Input</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}В поле <b>Type</b> выберите <b>Socks5</b>{{else}}For <b>Type</b>, select <b>Socks5</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}В поле <b>Host</b> впишите один из адресов серверов из списка выше (например, <code>bb0.navlink.net</code>) — проще всего скопировать{{else}}For <b>Host</b>, enter one of the server addresses from the list above (e.g. <code>bb0.navlink.net</code>) — copy-pasting is easiest{{end}}</li>
+          <li>{{if eq .Lang "ru"}}В поле <b>Port</b> впишите <b>8080</b>{{else}}For <b>Port</b>, enter <b>8080</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Включите переключатель <b>Auth</b> (появится, если его не было видно) — откроются поля Username и Password{{else}}Turn on the <b>Auth</b> toggle (it reveals the Username and Password fields if they weren't already visible){{end}}</li>
+          <li>{{if eq .Lang "ru"}}<b>Username</b> — ваш Navlink email. <b>Password</b> — пароль от личного кабинета{{else}}<b>Username</b> — your Navlink email. <b>Password</b> — your account password{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Нажмите <b>Save</b> в правом верхнем углу — сервер появится в общем списке{{else}}Tap <b>Save</b> in the top-right corner — the server now appears in the main list{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Коснитесь добавленного сервера один раз, чтобы выбрать его (он выделится/появится галочка){{else}}Tap the new server once to select it (it becomes highlighted / gets a checkmark){{end}}</li>
+          <li>{{if eq .Lang "ru"}}Нажмите главный переключатель включения (обычно вверху экрана) — появится системное окно iOS «Add VPN Configurations». Это стандартный запрос, который iOS показывает для любого прокси-приложения такого рода — нажмите <b>Allow</b> («Разрешить») и подтвердите Face ID/паролем, если попросит{{else}}Tap the main power toggle (usually at the top of the screen) — iOS will show its system prompt «Add VPN Configurations». This is the standard prompt iOS shows for any app of this kind — tap <b>Allow</b> and confirm with Face ID/passcode if asked{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Готово: если переключатель стал зелёным/активным — соединение работает. Проверьте, открыв любой сайт в браузере{{else}}Done: if the toggle turns green/active, the connection is working. Confirm by opening any website in your browser{{end}}</li>
+        </ol>
+        <p class="bb-note">
+          {{if eq .Lang "ru"}}Чтобы отключиться — откройте Potatso Lite и нажмите тот же переключатель ещё раз, он станет серым. Если сервер не подключается, попробуйте другой адрес из списка выше — они равнозначны.{{else}}To disconnect, open Potatso Lite and tap the same toggle again — it turns grey. If a server doesn't connect, try a different address from the list above — they're interchangeable.{{end}}
+        </p>
+      </div>
+
+      <!-- macOS: System Settings + Firefox -->
+      <div id="os-macos" class="bb-os-panel" style="display:none">
+        <div class="bb-app-label">{{if eq .Lang "ru"}}Системные настройки — системный прокси (без доп. ПО){{else}}System Settings — system-wide (built-in, no extra app){{end}}</div>
+        <ol class="bb-steps">
+          <li>{{if eq .Lang "ru"}}Откройте <b>Системные настройки</b> &rarr; <b>Сеть</b>{{else}}Open <b>System Settings</b> &rarr; <b>Network</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Нажмите на активное подключение &rarr; кнопка <b>Подробности&hellip;</b>{{else}}Click your active connection &rarr; <b>Details&hellip;</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Вкладка <b>Прокси</b> &rarr; включите <b>SOCKS-прокси</b>{{else}}<b>Proxies</b> tab &rarr; enable <b>SOCKS Proxy</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Сервер: адрес из списка выше. Порт: <b>8080</b>{{else}}Server: address from the list above. Port: <b>8080</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Если требуется авторизация: включите «Требовать пароль», логин — Navlink email, пароль — от кабинета{{else}}If auth required: check «Proxy server requires password», enter your Navlink email and account password{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Нажмите <b>OK</b> &rarr; <b>Применить</b>{{else}}Click <b>OK</b> &rarr; <b>Apply</b>{{end}}</li>
+        </ol>
+        <div class="bb-app-label bb-app-label-alt">Firefox &mdash; {{if eq .Lang "ru"}}только браузер (бесплатно){{else}}browser-only (free){{end}}</div>
+        <ol class="bb-steps">
+          <li>{{if eq .Lang "ru"}}В адресной строке: <code>about:preferences</code> &rarr; раздел <b>Сеть</b> &rarr; кнопка <b>Настроить&hellip;</b>{{else}}In the address bar: <code>about:preferences</code> &rarr; <b>Network Settings</b> &rarr; click <b>Settings&hellip;</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Выберите <b>Ручная настройка прокси</b>{{else}}Select <b>Manual proxy configuration</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}SOCKS-хост: адрес из списка выше. Порт: <b>8080</b>. Версия: <b>SOCKS v5</b>{{else}}SOCKS Host: address from the list above. Port: <b>8080</b>. Version: <b>SOCKS v5</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Включите «DNS через SOCKS v5»{{else}}Check «Proxy DNS when using SOCKS v5»{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Нажмите <b>OK</b>. При первом запросе введите Navlink email и пароль{{else}}Click <b>OK</b>. Enter your Navlink email and password when prompted{{end}}</li>
+        </ol>
+      </div>
+
+      <!-- Windows: Proxifier + Firefox -->
+      <div id="os-windows" class="bb-os-panel" style="display:none">
+        <div class="bb-app-label">Proxifier &mdash; {{if eq .Lang "ru"}}системный прокси для всех приложений{{else}}system-wide for all apps{{end}}</div>
+        <ol class="bb-steps">
+          <li>{{if eq .Lang "ru"}}Скачайте <a href="https://www.proxifier.com/" target="_blank" rel="noopener">Proxifier</a> с proxifier.com (есть пробный период){{else}}Download <a href="https://www.proxifier.com/" target="_blank" rel="noopener">Proxifier</a> from proxifier.com (free trial available){{end}}</li>
+          <li>{{if eq .Lang "ru"}}Меню <b>Profile</b> &rarr; <b>Proxy Servers&hellip;</b> &rarr; <b>Add</b>{{else}}<b>Profile</b> &rarr; <b>Proxy Servers&hellip;</b> &rarr; <b>Add</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Тип: <b>SOCKS Version 5</b>. Адрес: из списка выше. Порт: <b>8080</b>{{else}}Type: <b>SOCKS Version 5</b>. Address from the list above. Port: <b>8080</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Включите авторизацию: логин — Navlink email, пароль — от личного кабинета{{else}}Enable authentication: Navlink email as username, account password{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Меню <b>Profile</b> &rarr; <b>Proxification Rules&hellip;</b> &rarr; правило <b>Default</b>: действие <b>Proxy</b>{{else}}<b>Profile</b> &rarr; <b>Proxification Rules&hellip;</b> &rarr; set <b>Default</b> action to <b>Proxy</b>{{end}}</li>
+        </ol>
+        <div class="bb-app-label bb-app-label-alt">Firefox &mdash; {{if eq .Lang "ru"}}только браузер (бесплатно){{else}}browser-only (free){{end}}</div>
+        <ol class="bb-steps">
+          <li>{{if eq .Lang "ru"}}В адресной строке: <code>about:preferences</code> &rarr; раздел <b>Сеть</b> &rarr; кнопка <b>Настроить&hellip;</b>{{else}}In the address bar: <code>about:preferences</code> &rarr; <b>Network Settings</b> &rarr; click <b>Settings&hellip;</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Выберите <b>Ручная настройка прокси</b>{{else}}Select <b>Manual proxy configuration</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}SOCKS-хост: адрес из списка выше. Порт: <b>8080</b>. Версия: <b>SOCKS v5</b>{{else}}SOCKS Host: address from the list above. Port: <b>8080</b>. Version: <b>SOCKS v5</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Включите «DNS через SOCKS v5»{{else}}Check «Proxy DNS when using SOCKS v5»{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Нажмите <b>OK</b>. При первом запросе введите Navlink email и пароль{{else}}Click <b>OK</b>. Enter your Navlink email and password when prompted{{end}}</li>
+        </ol>
+      </div>
+
+      <!-- Linux: GNOME + proxychains + Firefox -->
+      <div id="os-linux" class="bb-os-panel" style="display:none">
+        <div class="bb-app-label">GNOME &mdash; {{if eq .Lang "ru"}}системный прокси{{else}}system-wide proxy{{end}}</div>
+        <ol class="bb-steps">
+          <li>{{if eq .Lang "ru"}}Откройте <b>Настройки</b> &rarr; <b>Сеть</b> &rarr; <b>Прокси</b>{{else}}Open <b>Settings</b> &rarr; <b>Network</b> &rarr; <b>Proxy</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Выберите <b>Вручную</b>{{else}}Select <b>Manual</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Поле <b>Socks-хост</b>: адрес сервера из списка выше. Порт: <b>8080</b>{{else}}<b>Socks host</b>: server address from the list above. Port: <b>8080</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Нажмите <b>Применить</b>{{else}}Click <b>Apply</b>{{end}}</li>
+        </ol>
+        <div class="bb-app-label bb-app-label-alt">proxychains-ng &mdash; {{if eq .Lang "ru"}}терминал и CLI-утилиты{{else}}terminal / CLI tools{{end}}</div>
+        <ol class="bb-steps">
+          <li>{{if eq .Lang "ru"}}Установите: <code>sudo apt install proxychains-ng</code> (или <code>dnf</code> / <code>pacman</code>){{else}}Install: <code>sudo apt install proxychains-ng</code> (or <code>dnf</code> / <code>pacman</code>){{end}}</li>
+          <li>{{if eq .Lang "ru"}}Отредактируйте <code>/etc/proxychains.conf</code>: в конце файла замените строку <code>socks4 127.0.0.1 9050</code> на:<br><code>socks5 &lt;сервер&gt; 8080 &lt;email&gt; &lt;пароль&gt;</code>{{else}}Edit <code>/etc/proxychains.conf</code>: replace the last line <code>socks4 127.0.0.1 9050</code> with:<br><code>socks5 &lt;server&gt; 8080 &lt;email&gt; &lt;password&gt;</code>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Запускайте нужные программы через: <code>proxychains curl https://example.com</code>{{else}}Prefix any command with: <code>proxychains curl https://example.com</code>{{end}}</li>
+        </ol>
+        <div class="bb-app-label bb-app-label-alt">Firefox &mdash; {{if eq .Lang "ru"}}только браузер (бесплатно){{else}}browser-only (free){{end}}</div>
+        <ol class="bb-steps">
+          <li>{{if eq .Lang "ru"}}В адресной строке: <code>about:preferences</code> &rarr; раздел <b>Сеть</b> &rarr; кнопка <b>Настроить&hellip;</b>{{else}}In the address bar: <code>about:preferences</code> &rarr; <b>Network Settings</b> &rarr; click <b>Settings&hellip;</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Выберите <b>Ручная настройка прокси</b>{{else}}Select <b>Manual proxy configuration</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}SOCKS-хост: адрес сервера из списка выше. Порт: <b>8080</b>. Версия: <b>SOCKS v5</b>{{else}}SOCKS Host: server address from the list above. Port: <b>8080</b>. Version: <b>SOCKS v5</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Включите «DNS через SOCKS v5»{{else}}Check «Proxy DNS when using SOCKS v5»{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Нажмите <b>OK</b>. При первом запросе введите Navlink email и пароль{{else}}Click <b>OK</b>. Enter your Navlink email and password when prompted{{end}}</li>
+        </ol>
+      </div>
+
+      <!-- Android: SocksDroid + Firefox -->
+      <div id="os-android" class="bb-os-panel" style="display:none">
+        <div class="bb-app-label">SocksDroid &mdash; {{if eq .Lang "ru"}}системный прокси для всех приложений (без root){{else}}system-wide for all apps (no root required){{end}}</div>
+        <ol class="bb-steps">
+          <li>{{if eq .Lang "ru"}}Установите <a href="https://play.google.com/store/apps/details?id=net.typeblog.socks" target="_blank" rel="noopener">SocksDroid</a> из Google Play (бесплатно){{else}}Install <a href="https://play.google.com/store/apps/details?id=net.typeblog.socks" target="_blank" rel="noopener">SocksDroid</a> from Google Play (free){{end}}</li>
+          <li>{{if eq .Lang "ru"}}Введите адрес сервера (из списка выше) в поле <b>Server Address</b>. Порт: <b>8080</b>{{else}}Enter the server address (from the list above) in <b>Server Address</b>. Port: <b>8080</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Логин: ваш Navlink email. Пароль: пароль от личного кабинета{{else}}Username: your Navlink email. Password: your account password{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Нажмите переключатель в верхнем правом углу — разрешите VPN-конфигурацию Android{{else}}Tap the toggle in the top-right corner — allow the Android VPN configuration{{end}}</li>
+        </ol>
+        <div class="bb-app-label bb-app-label-alt">Firefox &mdash; {{if eq .Lang "ru"}}только браузер (бесплатно){{else}}browser-only (free){{end}}</div>
+        <ol class="bb-steps">
+          <li>{{if eq .Lang "ru"}}Установите <a href="https://play.google.com/store/apps/details?id=org.mozilla.firefox" target="_blank" rel="noopener">Firefox</a> из Google Play{{else}}Install <a href="https://play.google.com/store/apps/details?id=org.mozilla.firefox" target="_blank" rel="noopener">Firefox</a> from Google Play{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Нажмите &#8942; &rarr; <b>Настройки</b> &rarr; прокрутите до <b>Общие</b> &rarr; <b>Настройки сети</b>{{else}}Tap &#8942; &rarr; <b>Settings</b> &rarr; scroll to <b>General</b> &rarr; <b>Network settings</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Выберите <b>Ручная настройка прокси</b>{{else}}Select <b>Manual proxy configuration</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}SOCKS-хост: адрес сервера из списка выше. Порт: <b>8080</b>. Версия: <b>SOCKS v5</b>{{else}}SOCKS Host: server address from the list above. Port: <b>8080</b>. Version: <b>SOCKS v5</b>{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Включите «Использовать SOCKS v5 для DNS»{{else}}Enable «Proxy DNS when using SOCKS v5»{{end}}</li>
+          <li>{{if eq .Lang "ru"}}Нажмите <b>OK</b>{{else}}Tap <b>OK</b>{{end}}</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- Contact form -->
+    <div class="bb-section bb-section-form">
+      <h2 class="bb-section-h">
+        {{if eq .Lang "ru"}}Корпоративное подключение{{else}}Enterprise Access{{end}}
+      </h2>
+      <p class="bb-form-desc">
+        {{if eq .Lang "ru"}}Нужен выделенный корпоративный доступ или собственный прокси-узел? Оставьте контакт — свяжемся в течение рабочего дня.{{else}}Need dedicated corporate access or a private proxy node? Leave your contact and we'll reply within one business day.{{end}}
+      </p>
+      <div class="bb-form-card">
+        <div id="bbForm">
+          <form onsubmit="submitBBForm(event)">
+            <div class="auth-field">
+              <label>{{if eq .Lang "ru"}}Имя{{else}}Name{{end}}</label>
+              <input type="text" id="bbName" required placeholder="{{if eq .Lang "ru"}}Ваше имя{{else}}Your name{{end}}">
+            </div>
+            <div class="auth-field">
+              <label>Email</label>
+              <input type="email" id="bbEmail" required placeholder="you@company.com">
+            </div>
+            <div class="auth-field">
+              <label>{{if eq .Lang "ru"}}Компания{{else}}Company{{end}}</label>
+              <input type="text" id="bbCompany" placeholder="{{if eq .Lang "ru"}}Необязательно{{else}}Optional{{end}}">
+            </div>
+            <div class="auth-field">
+              <label>{{if eq .Lang "ru"}}Решите пример: {{.CaptchaQ}}{{else}}Solve: {{.CaptchaQ}}{{end}}</label>
+              <input type="text" id="bbCaptchaAnswer" inputmode="numeric" autocomplete="off" required placeholder="?">
+            </div>
+            <input type="hidden" id="bbCaptchaToken" value="{{.CaptchaToken}}">
+            <div id="bbError" style="display:none;color:#ff8080;font-size:13px;margin-bottom:.5rem"></div>
+            <button type="submit" class="btn-auth" style="margin-top:.75rem">
+              {{if eq .Lang "ru"}}Отправить запрос{{else}}Send Request{{end}}
+            </button>
+          </form>
+        </div>
+        <div id="bbSuccess" style="display:none;text-align:center;padding:2rem 0">
+          <svg width="52" height="52" viewBox="0 0 52 52" fill="none" style="margin-bottom:1rem">
+            <circle cx="26" cy="26" r="25" stroke="rgba(125,220,255,.35)" stroke-width="1.5"/>
+            <path d="M14 26l8 8 16-16" stroke="#7DDDFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <p style="font-size:15px;color:rgba(232,236,244,.6);line-height:1.75">
+            {{if eq .Lang "ru"}}Запрос отправлен.<br>Мы свяжемся с вами в ближайшее время.{{else}}Request sent.<br>We'll be in touch shortly.{{end}}
+          </p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<style>
+.bb-page{
+  min-height:calc(100vh - 46px);
+  display:flex;flex-direction:column;align-items:center;
+  padding:96px 1.5rem 4rem;
+  background:url('/static/hero-bg.jpg') center/cover no-repeat fixed;
+  position:relative;
+}
+.bb-page::before{
+  content:'';
+  position:fixed;inset:0;
+  background:linear-gradient(to bottom,rgba(0,0,10,.7) 0%,rgba(0,0,10,.88) 100%);
+  pointer-events:none;z-index:0;
+}
+.bb-page > *{position:relative;z-index:1}
+
+/* Hero */
+.bb-hero{
+  text-align:center;
+  max-width:640px;
+  margin-bottom:3.5rem;
+}
+.bb-hero-logo{
+  width:96px;height:96px;
+  border-radius:50%;object-fit:cover;
+  margin-bottom:1.25rem;
+  box-shadow:0 0 60px rgba(125,220,255,.2);
+}
+.bb-hero-title{
+  font-size:clamp(2rem,5vw,3rem);
+  font-weight:800;letter-spacing:-.03em;
+  background:linear-gradient(130deg,#e8ecf4 30%,#7DDDFF);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  margin-bottom:.5rem;
+}
+.bb-hero-tag{
+  font-size:13px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;
+  color:rgba(125,220,255,.5);
+  margin-bottom:1.25rem;
+}
+.bb-hero-desc{
+  font-size:15px;line-height:1.85;
+  color:rgba(232,236,244,.45);
+}
+
+/* Body container */
+.bb-body{
+  width:100%;max-width:700px;
+  display:flex;flex-direction:column;gap:3rem;
+}
+
+/* Sections */
+.bb-section{
+  background:rgba(8,8,22,.82);
+  border:1px solid rgba(125,220,255,.13);
+  border-radius:18px;
+  padding:2rem 2.25rem;
+  backdrop-filter:blur(12px);
+}
+.bb-section-h{
+  font-size:1.05rem;font-weight:700;color:#e8ecf4;
+  letter-spacing:-.01em;
+  margin-bottom:1.5rem;
+}
+
+/* OS tabs */
+.bb-os-tabs{
+  display:flex;gap:.4rem;flex-wrap:wrap;
+  margin-bottom:1.5rem;
+}
+.bb-os-tab{
+  padding:.45rem 1.25rem;
+  border:1px solid rgba(125,220,255,.15);
+  border-radius:6px;
+  font-size:13px;font-weight:600;font-family:inherit;
+  color:rgba(232,236,244,.4);
+  background:none;cursor:pointer;
+  transition:all .18s;
+  letter-spacing:.02em;
+}
+.bb-os-tab:hover:not(.active){color:rgba(232,236,244,.7);border-color:rgba(125,220,255,.3)}
+.bb-os-tab.active{
+  background:rgba(125,220,255,.1);
+  border-color:rgba(125,220,255,.35);
+  color:#7DDDFF;
+}
+
+/* Servers box */
+.bb-srv-wrap{margin-bottom:1.5rem}
+.bb-srv-label{
+  font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  color:rgba(125,220,255,.4);margin-bottom:.4rem;
+}
+.bb-srv{
+  font-family:'Courier New',Courier,monospace;
+  font-size:12.5px;line-height:2.1;color:#7dd3fc;
+  background:rgba(0,0,20,.5);
+  border:1px solid rgba(125,220,255,.12);
+  border-radius:8px;
+  padding:10px 14px;
+}
+
+/* Guide panel */
+.bb-os-panel{}
+.bb-app-label{
+  font-size:13px;font-weight:700;
+  color:rgba(125,220,255,.7);
+  margin-bottom:.85rem;
+  letter-spacing:.02em;
+}
+.bb-app-label-alt{
+  margin-top:1.75rem;
+  padding-top:1.5rem;
+  border-top:1px solid rgba(125,220,255,.08);
+}
+.bb-steps{
+  margin:0;padding-left:1.25rem;
+  font-size:13.5px;line-height:1.95;
+  color:rgba(232,236,244,.52);
+}
+.bb-steps li{margin-bottom:.2rem}
+.bb-steps a{color:#7DDDFF;text-decoration:none}
+.bb-steps a:hover{text-decoration:underline}
+.bb-steps b{color:rgba(232,236,244,.75)}
+.bb-note{
+  margin-top:1rem;
+  font-size:12.5px;line-height:1.65;
+  color:rgba(232,236,244,.3);
+  border-left:2px solid rgba(125,220,255,.15);
+  padding-left:.75rem;
+}
+
+/* Contact form */
+.bb-section-form{}
+.bb-form-desc{
+  font-size:13.5px;line-height:1.75;
+  color:rgba(232,236,244,.4);
+  margin-bottom:1.5rem;
+}
+.bb-form-card{
+  max-width:400px;
+}
+
+@media(max-width:640px){
+  .bb-page{padding:88px 1rem 3rem}
+  .bb-section{padding:1.5rem 1.25rem}
+  .bb-body{gap:2rem}
+}
+</style>
+
+<script>
+function switchOS(os, btn) {
+  document.querySelectorAll('.bb-os-tab').forEach(function(b){ b.classList.remove('active') });
+  document.querySelectorAll('.bb-os-panel').forEach(function(p){ p.style.display='none' });
+  btn.classList.add('active');
+  document.getElementById('os-' + os).style.display = 'block';
+}
+
+function submitBBForm(e) {
+  e.preventDefault();
+  var errEl = document.getElementById('bbError');
+  errEl.style.display = 'none';
+  fetch('/blackbadger-inquiry', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      name:           document.getElementById('bbName').value,
+      email:          document.getElementById('bbEmail').value,
+      company:        document.getElementById('bbCompany').value,
+      captcha_token:  document.getElementById('bbCaptchaToken').value,
+      captcha_answer: document.getElementById('bbCaptchaAnswer').value
+    })
+  }).then(function(resp) {
+    if (!resp.ok) {
+      return resp.json().catch(function(){ return {}; }).then(function(data) {
+        throw new Error(data.error || 'failed');
+      });
+    }
+    document.getElementById('bbForm').style.display = 'none';
+    document.getElementById('bbSuccess').style.display = 'block';
+  }).catch(function(err) {
+    errEl.textContent = err.message === 'captcha'
+      ? '{{if eq .Lang "ru"}}Неверный ответ, попробуйте снова.{{else}}Incorrect answer, please try again.{{end}}'
+      : '{{if eq .Lang "ru"}}Не удалось отправить, попробуйте позже.{{else}}Failed to send, please try again later.{{end}}';
+    errEl.style.display = 'block';
+  });
+}
+</script>
+{{end}}

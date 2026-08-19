@@ -1,0 +1,85 @@
+{{define "content"}}
+<h1>App Store</h1>
+
+<div style="display:flex;gap:.5rem;margin-bottom:1rem">
+  <a href="?tab=pending"
+     class="btn {{if eq .Data.Tab "pending"}}btn-primary{{else}}btn-warning{{end}}">Pending review</a>
+  <a href="?tab=all"
+     class="btn {{if eq .Data.Tab "all"}}btn-primary{{else}}btn-warning{{end}}">All listings</a>
+</div>
+
+{{if eq .Data.Tab "pending"}}
+{{if .Data.Pending}}
+<table>
+  <tr>
+    <th>ID</th><th>Name</th><th>Category</th><th>Platforms</th><th>Submitted by</th>
+    <th>Description</th><th>Submitted</th><th>Action</th>
+  </tr>
+  {{range .Data.Pending}}
+  <tr>
+    <td>{{.ID}}</td>
+    <td>{{.Name}}</td>
+    <td>{{.Category}}</td>
+    <td>{{range .Platforms}}<span class="badge badge-ok" style="margin-right:2px">{{.}}</span>{{end}}</td>
+    <td>{{.OwnerUsername}}</td>
+    <td style="max-width:320px">{{.Description}}</td>
+    <td>{{fmtTime .SubmittedAt}}</td>
+    <td style="white-space:nowrap">
+      <form method="post" action="/admin/apps/{{.ID}}/approve" style="display:inline">
+        <button class="btn btn-success">Approve</button>
+      </form>
+      <form method="post" action="/admin/apps/{{.ID}}/reject" style="display:inline" onsubmit="return fillRejectReason(this)">
+        <input type="hidden" name="reason" value="">
+        <button class="btn btn-danger">Reject</button>
+      </form>
+    </td>
+  </tr>
+  {{end}}
+</table>
+<script>
+function fillRejectReason(form){
+  const reason = prompt('Reason for rejection (shown to the submitter):', '');
+  if (reason === null) return false; // cancelled
+  form.reason.value = reason;
+  return true;
+}
+</script>
+{{else}}
+<p class="text-muted">Nothing waiting for review.</p>
+{{end}}
+{{end}}
+
+{{if eq .Data.Tab "all"}}
+{{if .Data.All}}
+<table>
+  <tr>
+    <th>ID</th><th>Name</th><th>Status</th><th>Platforms</th><th>Submitted by</th>
+    <th>Updated</th><th>Action</th>
+  </tr>
+  {{range .Data.All}}
+  <tr>
+    <td>{{.ID}}</td>
+    <td>{{.Name}}</td>
+    <td>
+      {{if eq .Status "published"}}<span class="badge badge-approved">published</span>
+      {{else if eq .Status "rejected"}}<span class="badge badge-rejected" title="{{.RejectReason}}">rejected</span>
+      {{else}}<span class="badge badge-pending">pending</span>{{end}}
+    </td>
+    <td>{{range .Platforms}}<span class="badge badge-ok" style="margin-right:2px">{{.}}</span>{{end}}</td>
+    <td>{{.OwnerUsername}}</td>
+    <td>{{fmtTime .UpdatedAt}}</td>
+    <td style="white-space:nowrap">
+      <form method="post" action="/admin/apps/{{.ID}}/delete" style="display:inline"
+            onsubmit="return confirm('Delete {{.Name}}? This cannot be undone.')">
+        <button class="btn btn-danger">Delete</button>
+      </form>
+    </td>
+  </tr>
+  {{end}}
+</table>
+{{else}}
+<p class="text-muted">No listings yet.</p>
+{{end}}
+{{end}}
+
+{{end}}

@@ -1,0 +1,90 @@
+{{define "content"}}
+<div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.4rem;flex-wrap:wrap">
+  <a href="/admin?tab=egresses" class="btn">← Egresses</a>
+  <h1 style="margin:0;font-size:1.3rem">Capabilities: <code style="font-size:1rem">{{stripPort .Data.Node.Addr}}</code></h1>
+  {{if or .Data.Node.Location .Data.Node.Provider}}
+    <span class="text-muted" style="font-size:13px">
+      {{if .Data.Node.Location}}{{.Data.Node.Location}}{{end}}{{if and .Data.Node.Location .Data.Node.Provider}} · {{end}}{{if .Data.Node.Provider}}({{.Data.Node.Provider}}){{end}}
+    </span>
+  {{end}}
+</div>
+
+{{if .Data.Node.Capabilities}}
+
+<p class="text-muted" style="margin-bottom:1rem">
+  Reported by this egress via heartbeat. Shows which whitelisted domains it can reach via TLS:443.
+  {{if .Data.Entries}}
+    <strong style="margin-left:.5rem">{{.Data.OkCount}} / {{.Data.TotalProbed}} reachable</strong>
+    {{if eq .Data.TotalProbed 0}}(no domain/wildcard entries probed yet){{end}}
+  {{end}}
+</p>
+
+{{if .Data.Entries}}
+<table>
+  <thead>
+    <tr>
+      <th>Whitelist entry</th>
+      <th>Type</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+  {{range .Data.Entries}}
+    <tr>
+      <td><code>{{.Value}}</code></td>
+      <td><span class="badge badge-approved">{{.Type}}</span></td>
+      <td>
+        {{if eq .Status "ok"}}
+          <span style="color:#22c55e;font-weight:600">✓ reachable</span>
+        {{else if eq .Status "fail"}}
+          <span style="color:#ef4444;font-weight:600">✗ unreachable</span>
+        {{else if eq .Status "na"}}
+          <span class="text-muted">— N/A (CIDR, not probed)</span>
+        {{else}}
+          <span class="text-muted">— not probed yet</span>
+        {{end}}
+      </td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="text-muted">Whitelist is empty — add entries at <a href="/admin/whitelist">/admin/whitelist</a>.</p>
+{{end}}
+
+{{if .Data.Extra}}
+<h2 style="margin-top:2rem;font-size:1rem;color:#aaa">Stale probes (domain no longer in whitelist)</h2>
+<table style="opacity:.75">
+  <thead>
+    <tr><th>Domain</th><th>Status</th></tr>
+  </thead>
+  <tbody>
+  {{range .Data.Extra}}
+    <tr>
+      <td><code>{{.Value}}</code></td>
+      <td>
+        {{if eq .Status "ok"}}
+          <span style="color:#22c55e;font-weight:600">✓ reachable</span>
+        {{else}}
+          <span style="color:#ef4444;font-weight:600">✗ unreachable</span>
+        {{end}}
+      </td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+
+{{else}}
+
+<div class="card" style="max-width:520px;color:#888;padding:1.2rem">
+  This egress has not reported capabilities yet. Possible reasons:
+  <ul style="margin:.6rem 0 0 1.2rem">
+    <li>The egress is running an older binary without whitelist probe support.</li>
+    <li>The probe has not completed its first cycle (runs every 2 min after startup).</li>
+    <li>The whitelist is empty so there is nothing to probe.</li>
+  </ul>
+</div>
+
+{{end}}
+{{end}}

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>TunnelCat.Sdk</RootNamespace>
+    <PackageId>TunnelCat.Sdk</PackageId>
+    <Version>0.1.0</Version>
+    <Description>C# SDK for tunnelcat-core (spawns tunneld, drives it over its JSON-RPC socket)</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+</Project>

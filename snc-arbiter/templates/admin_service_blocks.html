@@ -1,0 +1,70 @@
+{{define "content"}}
+<h1>Service Region Blocks</h1>
+<p class="text-muted" style="margin-bottom:1rem;font-size:13px;max-width:640px">
+  Destinations that a given region's exits must not dial directly, even if
+  otherwise healthy — e.g. Telegram's voice CIDRs blocked for region RU,
+  since RU-hosted exits can't reach them regardless of tunnel health. When a
+  matching exit hits a matching destination, it looks for a peer exit whose
+  own region isn't in the blocked list and relays through that instead;
+  falls back to a direct dial if no such peer is available.
+</p>
+
+<div class="card" style="max-width:520px">
+  <form method="post" action="/admin/service-blocks/add">
+    <div class="form-group">
+      <label>Type</label>
+      <select name="type">
+        <option value="cidr">cidr</option>
+        <option value="domain">domain</option>
+        <option value="wildcard">wildcard</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Value</label>
+      <input type="text" name="value" placeholder="e.g. 91.108.0.0/16" required>
+    </div>
+    <div class="form-group">
+      <label>Blocked for regions</label>
+      <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:.3rem">
+        <label style="display:flex;align-items:center;gap:.3rem;font-weight:400;cursor:pointer"><input type="checkbox" name="regions" value="RU" style="width:16px;height:16px"> RU</label>
+        <label style="display:flex;align-items:center;gap:.3rem;font-weight:400;cursor:pointer"><input type="checkbox" name="regions" value="EU" style="width:16px;height:16px"> EU</label>
+        <label style="display:flex;align-items:center;gap:.3rem;font-weight:400;cursor:pointer"><input type="checkbox" name="regions" value="US" style="width:16px;height:16px"> US</label>
+        <label style="display:flex;align-items:center;gap:.3rem;font-weight:400;cursor:pointer"><input type="checkbox" name="regions" value="CN" style="width:16px;height:16px"> CN</label>
+        <label style="display:flex;align-items:center;gap:.3rem;font-weight:400;cursor:pointer"><input type="checkbox" name="regions" value="IR" style="width:16px;height:16px"> IR</label>
+        <label style="display:flex;align-items:center;gap:.3rem;font-weight:400;cursor:pointer"><input type="checkbox" name="regions" value="OTHER" style="width:16px;height:16px"> OTHER</label>
+        <label style="display:flex;align-items:center;gap:.3rem;font-weight:400;cursor:pointer"><input type="checkbox" name="regions" value="HETZNER" style="width:16px;height:16px"> HETZNER (provider, any region)</label>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Reason (optional, for your own future reference)</label>
+      <input type="text" name="reason" placeholder="e.g. Telegram voice — RKN blocks RU routes">
+    </div>
+    <button class="btn btn-primary btn-sm">Add</button>
+  </form>
+</div>
+
+{{if .Data.Blocks}}
+<table style="margin-top:1.5rem">
+  <thead><tr><th>Type</th><th>Value</th><th>Blocked for</th><th>Reason</th><th>Added</th><th></th></tr></thead>
+  <tbody>
+  {{range .Data.Blocks}}
+    <tr>
+      <td><span class="badge badge-approved">{{.Type}}</span></td>
+      <td><code>{{.Value}}</code></td>
+      <td>{{range .BlockedRegions}}<span class="badge badge-rejected" style="margin-right:3px">{{.}}</span>{{end}}</td>
+      <td class="text-muted">{{if .Reason}}{{.Reason}}{{else}}—{{end}}</td>
+      <td class="text-muted">{{fmtTime .CreatedAt}}</td>
+      <td>
+        <form method="post" action="/admin/service-blocks/delete" style="display:inline">
+          <input type="hidden" name="id" value="{{.ID}}">
+          <button class="btn btn-danger btn-sm" onclick="return confirm('Delete?')">Del</button>
+        </form>
+      </td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="text-muted mt2" style="font-size:13px">No rules — every exit dials every destination directly.</p>
+{{end}}
+{{end}}

@@ -1,0 +1,131 @@
+{{define "content"}}
+<h1>Clubs</h1>
+<p class="text-muted" style="margin-bottom:1.5rem">
+  Cat Club / Elite Cat Club membership, recommendations, and dedicated node pools.
+  Elite Cat Club membership automatically includes Cat Club access.
+</p>
+
+{{range .Data.Clubs}}
+{{$club := .Club}}
+<div class="card" style="margin-bottom:2rem">
+  <h2 style="margin-top:0">{{$club.Name}}</h2>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:2rem;align-items:start">
+
+    <div>
+      <h3>Members</h3>
+      {{if .Members}}
+      <table>
+        <thead><tr><th>#</th><th>Username</th><th></th></tr></thead>
+        <tbody>
+        {{range .Members}}
+          <tr>
+            <td>{{.MembershipNumber}}</td>
+            <td>{{.Username}}</td>
+            <td>
+              <form method="post" action="/admin/clubs/revoke">
+                <input type="hidden" name="club_id" value="{{$club.ID}}">
+                <input type="hidden" name="target_username" value="{{.Username}}">
+                <button class="btn btn-danger btn-sm">Revoke</button>
+              </form>
+            </td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+      {{else}}
+      <p class="text-muted">No members yet.</p>
+      {{end}}
+
+      <h3 style="margin-top:1.5rem">Grant / invite</h3>
+      <form method="post" action="/admin/clubs/grant" id="grant-form-{{$club.ID}}">
+        <input type="hidden" name="club_id" value="{{$club.ID}}">
+        <div class="form-group">
+          <label>Username</label>
+          <input type="text" name="target_username" placeholder="username" required>
+        </div>
+        <button class="btn btn-primary btn-sm" formaction="/admin/clubs/grant">Grant membership</button>
+        <button class="btn btn-ghost btn-sm" formaction="/admin/clubs/invite">Record invite only</button>
+      </form>
+    </div>
+
+    <div>
+      <h3>Pending candidates</h3>
+      {{if .Candidates}}
+      <table>
+        <thead><tr><th>Username</th><th>From Cat Club</th><th>From Elite</th></tr></thead>
+        <tbody>
+        {{range .Candidates}}
+          <tr>
+            <td>{{.TargetUsername}}</td>
+            <td>{{.CatCount}} / {{$club.RecThresholdCat}}</td>
+            <td>{{.EliteCount}} / {{$club.RecThresholdElite}}</td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+      {{else}}
+      <p class="text-muted">No pending recommendations.</p>
+      {{end}}
+
+      <h3 style="margin-top:1.5rem">Dedicated nodes ({{len .Nodes}})</h3>
+      {{if .Nodes}}
+      <table>
+        <thead><tr><th>Type</th><th>Addr</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        {{range .Nodes}}
+          <tr>
+            <td>{{.Type}}</td>
+            <td><code>{{.Addr}}</code></td>
+            <td>{{.Status}}</td>
+            <td>
+              <form method="post" action="/admin/clubs/assign-node">
+                <input type="hidden" name="node_id" value="{{.ID}}">
+                <input type="hidden" name="club_id" value="0">
+                <button class="btn btn-ghost btn-sm">Move to general pool</button>
+              </form>
+            </td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+      {{else}}
+      <p class="text-muted">No nodes dedicated yet — assign some from the general pool below.</p>
+      {{end}}
+    </div>
+
+  </div>
+</div>
+{{end}}
+
+<div class="card">
+  <h2 style="margin-top:0">Assign a node to a club</h2>
+  {{if .Data.GeneralNodes}}
+  <table>
+    <thead><tr><th>Type</th><th>Addr</th><th>Status</th><th>Assign to</th></tr></thead>
+    <tbody>
+    {{range .Data.GeneralNodes}}
+      <tr>
+        <td>{{.Type}}</td>
+        <td><code>{{.Addr}}</code></td>
+        <td>{{.Status}}</td>
+        <td>
+          <form method="post" action="/admin/clubs/assign-node" style="display:flex;gap:.5rem">
+            <input type="hidden" name="node_id" value="{{.ID}}">
+            <select name="club_id">
+              {{range $.Data.Clubs}}
+              <option value="{{.Club.ID}}">{{.Club.Name}}</option>
+              {{end}}
+            </select>
+            <button class="btn btn-primary btn-sm">Assign</button>
+          </form>
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p class="text-muted">No unassigned control/exit nodes in the general pool.</p>
+  {{end}}
+</div>
+{{end}}

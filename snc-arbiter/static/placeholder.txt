@@ -1,0 +1,1 @@
+Place hero-bg.jpg and logo.png in this directory.

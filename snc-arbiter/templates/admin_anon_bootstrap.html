@@ -1,0 +1,74 @@
+{{define "content"}}
+<h1>Anonymous Bootstrap</h1>
+<p class="text-muted" style="margin-bottom:1rem;font-size:13px;max-width:640px">
+  Lets a client with no key yet reach a small set of destinations (the site
+  that sells one) through the tunnel anyway. Works by baking a single shared
+  token into the client apps — every exit recognizes it locally (no arbiter
+  round-trip) and, only for requests using it, restricts the destination to
+  the list below. Same wire shape as a real user's session end to end, so
+  there's nothing new for DPI to key on: the difference is a header value
+  inside already-encrypted traffic, never visible on the wire.
+</p>
+
+{{if .Flash}}<div class="card" style="background:#fee2e2;color:#991b1b;margin-bottom:.8rem;padding:.7rem 1rem">{{.Flash}}</div>{{end}}
+{{if .FlashOK}}<div class="card" style="background:#d1fae5;color:#065f46;margin-bottom:.8rem;padding:.7rem 1rem">{{.FlashOK}}</div>{{end}}
+
+<div class="card" style="max-width:640px;margin-bottom:1.5rem">
+  <h2 style="margin-top:0">Current token</h2>
+  <p class="text-muted" style="font-size:13px;margin-top:0">
+    This exact value must be embedded in every client build that wants to use
+    the bootstrap path. It is a single secret shared by every install of the
+    app — anyone who extracts it from the APK/binary can use it too, but only
+    to reach the domains listed below, nothing else. Regenerating it silently
+    breaks bootstrap access for every previously-built client the moment
+    exits next refresh their cache (hourly) — only do this if a leak is
+    suspected, or as routine hygiene timed to a new client release.
+  </p>
+  <code style="display:block;padding:.6rem .8rem;background:#1a1a2e;color:#7dddff;border-radius:4px;word-break:break-all;font-size:13px">{{.Data.Token}}</code>
+  <form method="post" action="/admin/anon-bootstrap/regenerate" style="margin-top:.8rem" onsubmit="return confirm('Regenerate the bootstrap token? Every previously-built client using the old value loses bootstrap access once exits refresh.')">
+    <button class="btn btn-warning btn-sm">Regenerate</button>
+  </form>
+</div>
+
+<div class="card" style="max-width:520px">
+  <h2 style="margin-top:0">Add a destination</h2>
+  <form method="post" action="/admin/anon-bootstrap/add">
+    <div class="form-group">
+      <label>Type</label>
+      <select name="type">
+        <option value="domain">domain</option>
+        <option value="wildcard">wildcard</option>
+        <option value="cidr">cidr</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Value</label>
+      <input type="text" name="value" placeholder="e.g. shortnerdcat.navlink.net" required>
+    </div>
+    <button class="btn btn-primary btn-sm">Add</button>
+  </form>
+</div>
+
+{{if .Data.Entries}}
+<table style="margin-top:1.5rem;max-width:640px">
+  <thead><tr><th>Type</th><th>Value</th><th>Added</th><th></th></tr></thead>
+  <tbody>
+  {{range .Data.Entries}}
+    <tr>
+      <td><span class="badge badge-approved">{{.Type}}</span></td>
+      <td><code>{{.Value}}</code></td>
+      <td class="text-muted">{{fmtTime .CreatedAt}}</td>
+      <td>
+        <form method="post" action="/admin/anon-bootstrap/delete" style="display:inline">
+          <input type="hidden" name="id" value="{{.ID}}">
+          <button class="btn btn-danger btn-sm" onclick="return confirm('Delete?')">Del</button>
+        </form>
+      </td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="text-muted mt2" style="font-size:13px">No entries — the bootstrap token currently unlocks nothing.</p>
+{{end}}
+{{end}}

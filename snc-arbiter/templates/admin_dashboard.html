@@ -1,0 +1,1482 @@
+{{define "content"}}
+<h1>Dashboard</h1>
+
+{{/* ── System summary ──────────────────────────────────────────────────── */}}
+<div style="display:flex;gap:1rem;margin-bottom:1.2rem;flex-wrap:wrap">
+  <div class="card" style="flex:1;min-width:130px;margin:0;padding:.9rem 1.2rem">
+    <div class="text-muted">Controls</div>
+    <div style="font-size:1.4rem;font-weight:700;margin-top:.2rem">
+      <span id="ds-online-ctrl">{{.Data.OnlineCtrl}}</span> / <span id="ds-total-ctrl">{{len .Data.Controls}}</span>
+      <span class="text-muted" style="font-size:.85rem;font-weight:400">online</span>
+    </div>
+  </div>
+  <div class="card" style="flex:1;min-width:130px;margin:0;padding:.9rem 1.2rem">
+    <div class="text-muted">Egresses</div>
+    <div style="font-size:1.4rem;font-weight:700;margin-top:.2rem">
+      <span id="ds-online-egress">{{.Data.OnlineEgress}}</span> / <span id="ds-total-egress">{{len .Data.Egresses}}</span>
+      <span class="text-muted" style="font-size:.85rem;font-weight:400">online</span>
+    </div>
+  </div>
+  <div class="card" style="flex:1;min-width:130px;margin:0;padding:.9rem 1.2rem">
+    <div class="text-muted">Active users</div>
+    <div style="font-size:1.4rem;font-weight:700;margin-top:.2rem">
+      <span id="ds-active-users">{{.Data.ActiveUsers}}</span> / <span id="ds-total-users">{{.Data.TotalUsers}}</span>
+      <span class="text-muted" style="font-size:.85rem;font-weight:400">live / total</span>
+    </div>
+  </div>
+  <div id="ds-health-card" class="card" style="flex:1;min-width:130px;margin:0;padding:.9rem 1.2rem;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:.3rem">
+    {{if eq .Data.HealthStatus "green"}}
+      <span style="font-size:2rem;line-height:1" title="All nodes online">🟢</span>
+      <span style="font-size:.8rem;color:#22c55e;font-weight:600">Healthy</span>
+    {{else if eq .Data.HealthStatus "yellow"}}
+      <span style="font-size:2rem;line-height:1" title="Some nodes offline">🟡</span>
+      <span style="font-size:.8rem;color:#eab308;font-weight:600">Degraded</span>
+    {{else}}
+      <span style="font-size:2rem;line-height:1" title="Critical: exits or controls offline">🔴</span>
+      <span style="font-size:.8rem;color:#ef4444;font-weight:600">Critical</span>
+    {{end}}
+  </div>
+  <div class="card" style="flex:1;min-width:160px;margin:0;padding:.9rem 1.2rem;display:flex;flex-direction:column;justify-content:center;gap:.4rem">
+    <a href="/admin/infra" class="btn btn-primary" style="text-align:center">Manage nodes</a>
+    <a href="/admin/pending" class="btn btn-warning" style="text-align:center">Pending approvals</a>
+    <a href="/admin/update" class="btn btn-primary" style="text-align:center">OTA updates</a>
+  </div>
+</div>
+
+{{/* ── Secondary summary: accounts / club membership — smaller, below the main panel ── */}}
+<div style="display:flex;gap:.8rem;margin-bottom:1.2rem;flex-wrap:wrap">
+  <div class="card" style="flex:1;min-width:130px;margin:0;padding:.6rem 1rem">
+    <div class="text-muted" style="font-size:.8rem">Total accounts</div>
+    <div style="font-size:1.1rem;font-weight:700;margin-top:.15rem">
+      <span id="ds-all-accounts">{{.Data.AllAccounts}}</span>
+      <span class="text-muted" style="font-size:.75rem;font-weight:400">registered, incl. never connected</span>
+    </div>
+  </div>
+  <div class="card" style="flex:1;min-width:130px;margin:0;padding:.6rem 1rem">
+    <div class="text-muted" style="font-size:.8rem">Cat Club online</div>
+    <div style="font-size:1.1rem;font-weight:700;margin-top:.15rem">
+      <span id="ds-cat-club-online">{{.Data.CatClubOnline}}</span>
+      <span class="text-muted" style="font-size:.75rem;font-weight:400">direct members, live</span>
+    </div>
+  </div>
+  <div class="card" style="flex:1;min-width:130px;margin:0;padding:.6rem 1rem">
+    <div class="text-muted" style="font-size:.8rem">Elite Cat Club online</div>
+    <div style="font-size:1.1rem;font-weight:700;margin-top:.15rem">
+      <span id="ds-elite-club-online">{{.Data.EliteClubOnline}}</span>
+      <span class="text-muted" style="font-size:.75rem;font-weight:400">direct members, live</span>
+    </div>
+  </div>
+</div>
+
+{{/* ── Flash message ─────────────────────────────────────────────────── */}}
+{{if .Data.Flash}}<div class="card" style="background:#d1fae5;color:#065f46;margin-bottom:.8rem;padding:.7rem 1rem">{{.Data.Flash}}</div>{{end}}
+
+{{/* ── Relay toggle ───────────────────────────────────────────────────── */}}
+<div class="card" style="max-width:480px;margin-bottom:1.2rem;padding:.9rem 1.2rem">
+  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+    <div>
+      <strong>Client-relay registration</strong>
+      {{if .Data.RelayEnabled}}
+        <span style="margin-left:.5rem;color:#22c55e;font-weight:600">● Enabled</span>
+      {{else}}
+        <span style="margin-left:.5rem;color:#ef4444;font-weight:600">● Disabled</span>
+      {{end}}
+    </div>
+    {{if .Data.RelayEnabled}}
+      <form method="POST" action="/admin/relay/toggle" style="margin:0">
+        <input type="hidden" name="enable" value="0">
+        <button class="btn btn-warning" style="padding:.3rem .8rem;font-size:.85rem">Disable</button>
+      </form>
+    {{else}}
+      <form method="POST" action="/admin/relay/toggle" style="margin:0">
+        <input type="hidden" name="enable" value="1">
+        <button class="btn btn-success" style="padding:.3rem .8rem;font-size:.85rem">Enable</button>
+      </form>
+    {{end}}
+  </div>
+</div>
+
+{{/* ── IPv6 toggle ────────────────────────────────────────────────────── */}}
+<div class="card" style="max-width:480px;margin-bottom:1.2rem;padding:.9rem 1.2rem">
+  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+    <div>
+      <strong>IPv6</strong>
+      {{if .Data.IPv6Enabled}}
+        <span style="margin-left:.5rem;color:#22c55e;font-weight:600">● Enabled</span>
+      {{else}}
+        <span style="margin-left:.5rem;color:#ef4444;font-weight:600">● Disabled</span>
+      {{end}}
+      <div style="font-size:.8rem;color:#6b7280;margin-top:.2rem">Broadcast to clients via the manifest. When off, clients force "disable IPv6" on and hide the manual toggle.</div>
+    </div>
+    {{if .Data.IPv6Enabled}}
+      <form method="POST" action="/admin/ipv6/toggle" style="margin:0">
+        <input type="hidden" name="enable" value="0">
+        <button class="btn btn-warning" style="padding:.3rem .8rem;font-size:.85rem">Disable</button>
+      </form>
+    {{else}}
+      <form method="POST" action="/admin/ipv6/toggle" style="margin:0">
+        <input type="hidden" name="enable" value="1">
+        <button class="btn btn-success" style="padding:.3rem .8rem;font-size:.85rem">Enable</button>
+      </form>
+    {{end}}
+  </div>
+</div>
+
+{{/* ── Add node card ──────────────────────────────────────────────────── */}}
+<div id="add-node-card" class="card" style="display:none;max-width:520px;margin-bottom:1rem">
+  <h2>Register &amp; approve node</h2>
+  <div class="form-group mt2">
+    <label>Type</label>
+    <select id="an-type">
+      <option value="exit">Exit (snc-exit)</option>
+      <option value="control">Control (snc-control)</option>
+    </select>
+  </div>
+  <div class="form-group">
+    <label>Server IP address</label>
+    <input type="text" id="an-host" placeholder="203.0.113.16" autocomplete="off">
+    <span class="text-muted" style="font-size:12px">The arbiter will SSH in and deploy everything automatically.</span>
+  </div>
+  <div class="form-group">
+    <label>SSH user</label>
+    <input type="text" id="an-user" placeholder="root" autocomplete="off">
+    <span class="text-muted" style="font-size:12px">Leave empty for root. For a non-root user with passwordless sudo, root's authorized_keys is left untouched — only this user's key is used and sudo is added to every command.</span>
+  </div>
+  <div class="form-group">
+    <label>SSH authentication</label>
+    <div style="display:flex;gap:1.5rem;margin-bottom:.5rem">
+      <label style="display:flex;align-items:center;gap:.4rem;font-size:14px;color:#222">
+        <input type="radio" name="an-auth" value="password" checked onchange="anToggleAuth(this.value)"> Password
+      </label>
+      <label style="display:flex;align-items:center;gap:.4rem;font-size:14px;color:#222">
+        <input type="radio" name="an-auth" value="key" onchange="anToggleAuth(this.value)"> SSH private key
+      </label>
+    </div>
+    <div id="an-auth-password">
+      <input type="password" id="an-password" placeholder="password" autocomplete="new-password">
+    </div>
+    <div id="an-auth-key" style="display:none">
+      <textarea id="an-key" rows="6" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----" style="font-family:monospace;font-size:12px"></textarea>
+    </div>
+  </div>
+  <div class="form-group">
+    <label>Description (optional)</label>
+    <input type="text" id="an-desc" placeholder="e.g. Frankfurt exit">
+  </div>
+  <div style="display:flex;gap:.5rem">
+    <button class="btn btn-success" onclick="doAddNode()">Register &amp; deploy</button>
+    <button class="btn" onclick="toggleAddNode()">Cancel</button>
+  </div>
+  <div id="an-result" style="margin-top:.8rem;font-family:monospace;font-size:13px;word-break:break-all"></div>
+</div>
+
+{{/* ── Tab bar ─────────────────────────────────────────────────────────── */}}
+<div style="display:flex;gap:.5rem;margin-bottom:1rem;align-items:center;flex-wrap:wrap">
+  <a href="?tab=controls{{if .Data.Search}}&q={{.Data.Search}}{{end}}"
+     class="btn {{if eq .Data.Tab "controls"}}btn-primary{{else}}btn-warning{{end}}">Controls</a>
+  <a href="?tab=egresses{{if .Data.Search}}&q={{.Data.Search}}{{end}}"
+     class="btn {{if eq .Data.Tab "egresses"}}btn-primary{{else}}btn-warning{{end}}">Egresses</a>
+  <a href="?tab=users"
+     class="btn {{if eq .Data.Tab "users"}}btn-primary{{else}}btn-warning{{end}}">Users</a>
+  <a href="?tab=netstats"
+     class="btn {{if eq .Data.Tab "netstats"}}btn-primary{{else}}btn-warning{{end}}">Network Stats</a>
+  {{if or (eq .Data.Tab "controls") (eq .Data.Tab "egresses")}}
+  <form method="get" style="margin-left:auto;display:flex;gap:.4rem">
+    <input type="hidden" name="tab" value="{{.Data.Tab}}">
+    <input type="text" name="q" value="{{.Data.Search}}" placeholder="Search address…" style="width:220px">
+    <button class="btn btn-primary" type="submit">Search</button>
+    {{if .Data.Search}}<a href="?tab={{.Data.Tab}}" class="btn btn-warning">Clear</a>{{end}}
+  </form>
+  {{end}}
+</div>
+
+{{/* ── Nodes tabs ──────────────────────────────────────────────────────── */}}
+{{if eq .Data.Tab "controls"}}
+  {{template "node-table" .Data.Controls}}
+  {{template "rotation-table" .Data.ControlRotations}}
+{{else if eq .Data.Tab "egresses"}}
+  {{template "node-table" .Data.Egresses}}
+  {{template "rotation-table" .Data.EgressRotations}}
+{{end}}
+
+{{/* ── Users tab ───────────────────────────────────────────────────────── */}}
+{{if eq .Data.Tab "users"}}
+<div class="card" style="max-width:600px;margin-bottom:1.5rem">
+  <div style="display:flex;gap:.5rem;align-items:center">
+    <input type="text" id="search" placeholder="Search by username…" style="flex:1" oninput="loadUsers()" autocomplete="off">
+    <a href="/admin/api/users/export.csv" class="btn btn-primary" style="white-space:nowrap;padding:.35rem .8rem;font-size:.875rem">Export CSV</a>
+  </div>
+</div>
+
+{{/* Fleet-average BananaMeter/connection-stats charts moved to the Network
+     Stats tab's type toggle (Controls / Exits / Users) -- see there. This
+     tab is now just the searchable per-user list. */}}
+<div id="stats-wrap"><p class="text-muted">Loading…</p></div>
+{{end}}
+
+{{/* ── Network Stats tab ───────────────────────────────────────────────── */}}
+{{if eq .Data.Tab "netstats"}}
+<div class="card" style="display:flex;gap:2rem;flex-wrap:wrap;align-items:center">
+  <div id="ns-totalBytesCard">
+    <div class="text-muted">Total data transferred (selected node type)</div>
+    <div id="ns-totalBytes" style="font-size:1.4rem;font-weight:700">—</div>
+  </div>
+  <div style="display:flex;gap:.4rem" id="ns-typeToggle">
+    <button class="btn" data-type="control">Controls</button>
+    <button class="btn" data-type="exit">Exits</button>
+    <button class="btn" data-type="user">Users</button>
+  </div>
+  <div style="margin-left:auto;display:flex;gap:.4rem" id="ns-rangeToggle">
+    <button class="btn" data-range="24h">24h</button>
+    <button class="btn" data-range="7d">7d</button>
+    <button class="btn" data-range="30d">30d</button>
+  </div>
+</div>
+
+{{/* ── Load-factor tuning ─────────────────────────────────────────────── */}}
+<div id="ns-secLoadFactor">
+<h2 style="margin-top:1.5rem">Load-factor balancing (bonus/malus on top of RTT routing)</h2>
+<div class="card" style="max-width:640px">
+  <p class="text-muted" style="margin-top:0">
+    Every 5 minutes the arbiter compares each node's last-hour traffic to the
+    mean of its own type+region peers and writes a coefficient (clamped to
+    the range below) into the signed manifest/exit list. Clients and controls
+    multiply it into their existing RTT-based routing score — above-average
+    load gets a malus (deprioritised), below-average gets a bonus. Regional
+    filtering itself is untouched; this only adjusts ranking within an
+    already-filtered pool.
+  </p>
+  <form method="POST" action="/admin/loadfactor/update" style="display:flex;flex-direction:column;gap:.7rem">
+    <label style="display:flex;align-items:center;gap:.5rem">
+      <input type="checkbox" name="enabled" value="1" {{if .Data.LoadFactor.Enabled}}checked{{end}} style="width:16px;height:16px">
+      Enabled (unchecked = every node reports neutral load, RTT-only routing)
+    </label>
+    <div style="display:flex;gap:1.5rem;flex-wrap:wrap">
+      <div>
+        <div class="text-muted" style="font-size:12px;margin-bottom:.2rem">Controls: min / max</div>
+        <div style="display:flex;gap:.4rem;align-items:center">
+          <input type="number" step="0.01" min="0.01" name="control_min" value="{{printf "%.2f" .Data.LoadFactor.ControlMin}}" style="width:80px">
+          <span class="text-muted">–</span>
+          <input type="number" step="0.01" min="0.01" name="control_max" value="{{printf "%.2f" .Data.LoadFactor.ControlMax}}" style="width:80px">
+        </div>
+      </div>
+      <div>
+        <div class="text-muted" style="font-size:12px;margin-bottom:.2rem">Exits: min / max</div>
+        <div style="display:flex;gap:.4rem;align-items:center">
+          <input type="number" step="0.01" min="0.01" name="exit_min" value="{{printf "%.2f" .Data.LoadFactor.ExitMin}}" style="width:80px">
+          <span class="text-muted">–</span>
+          <input type="number" step="0.01" min="0.01" name="exit_max" value="{{printf "%.2f" .Data.LoadFactor.ExitMax}}" style="width:80px">
+        </div>
+      </div>
+    </div>
+    <div>
+      <button class="btn btn-primary" type="submit" style="padding:.4rem 1.2rem">Save</button>
+    </div>
+  </form>
+</div>
+</div>{{/* /ns-secLoadFactor */}}
+
+<div id="ns-secBananaByType">
+<h2>BananaMeter tunnel diagnostics (selected node type) — bold = overall average, thin = individual node</h2>
+<div class="card">
+  <h2 style="margin-top:0">Which nodes to show</h2>
+  <div style="display:flex;gap:.5rem;margin-bottom:.6rem">
+    <button class="btn btn-primary" style="font-size:12px;padding:2px 8px" onclick="nsbSelectAll(true)">Select all</button>
+    <button class="btn btn-warning" style="font-size:12px;padding:2px 8px" onclick="nsbSelectAll(false)">Select none</button>
+  </div>
+  <div id="ns-bananaNodeFilter" style="display:flex;flex-wrap:wrap;gap:.3rem .9rem;font-size:13px;font-family:monospace;max-height:160px;overflow-y:auto"></div>
+</div>
+<div class="card">
+  <h2 style="margin-top:0">Throughput (relative)</h2>
+  <canvas id="ns-chartBananaMbps" height="80"></canvas>
+</div>
+<div class="card">
+  <h2 style="margin-top:0">Ping (relative)</h2>
+  <canvas id="ns-chartBananaPing" height="80"></canvas>
+</div>
+</div>{{/* /ns-secBananaByType */}}
+
+<div id="ns-secUnreachable">
+<h2>Control unreachability, as reported by clients — one bar per node, height = number of unreachable events in the last hour. Counted by node id, not address, so an IP rotation doesn't split a node's history in two.</h2>
+<div class="card">
+  <h2 style="margin-top:0">Which nodes to show</h2>
+  <div style="display:flex;gap:.5rem;margin-bottom:.6rem">
+    <button class="btn btn-primary" style="font-size:12px;padding:2px 8px" onclick="nsuSelectAll(true)">Select all</button>
+    <button class="btn btn-warning" style="font-size:12px;padding:2px 8px" onclick="nsuSelectAll(false)">Select none</button>
+  </div>
+  <div id="ns-unreachNodeFilter" style="display:flex;flex-wrap:wrap;gap:.3rem .9rem;font-size:13px;font-family:monospace;max-height:160px;overflow-y:auto"></div>
+</div>
+<div class="card">
+  <h2 style="margin-top:0">Unreachable events, last hour (per node)</h2>
+  <div style="overflow-x:auto"><canvas id="ns-chartUnreachable" height="80"></canvas></div>
+</div>
+</div>{{/* /ns-secUnreachable */}}
+
+<div id="ns-secNetHealth">
+<h2>Network health (selected node type)</h2>
+<div class="card"><h2 style="margin-top:0">Nodes online (per 10-min bucket)</h2><canvas id="ns-chartOnline" height="80"></canvas></div>
+<div class="card"><h2 style="margin-top:0">Average RTT (ms)</h2><canvas id="ns-chartRTT" height="80"></canvas></div>
+<div class="card" id="ns-cardRoutingRTT"><h2 style="margin-top:0">Routing RTT (ms) — what exit-selection actually uses</h2><canvas id="ns-chartRoutingRTT" height="80"></canvas></div>
+<div class="card"><h2 id="ns-hdrBytes" style="margin-top:0">Data transferred (per 10-min bucket, summed)</h2><canvas id="ns-chartBytes" height="80"></canvas></div>
+</div>{{/* /ns-secNetHealth */}}
+
+<div id="ns-secPeaks">
+<h2>Peak load &amp; distribution across nodes (selected node type, whole range)</h2>
+<div class="card">
+  <h2 style="margin-top:0">Which nodes to show</h2>
+  <div style="display:flex;gap:.5rem;margin-bottom:.6rem">
+    <button class="btn btn-primary" style="font-size:12px;padding:2px 8px" onclick="nsSelectAll(true)">Select all</button>
+    <button class="btn btn-warning" style="font-size:12px;padding:2px 8px" onclick="nsSelectAll(false)">Select none</button>
+  </div>
+  <div id="ns-nodeFilter" style="display:flex;flex-wrap:wrap;gap:.3rem .9rem;font-size:13px;font-family:monospace;max-height:160px;overflow-y:auto"></div>
+</div>
+<div class="card">
+  <h2 id="ns-hdrDistBytes" style="margin-top:0">Traffic distribution across nodes</h2>
+  <div style="overflow-x:auto"><canvas id="ns-chartDistBytes" height="90"></canvas></div>
+</div>
+<div class="card">
+  <h2 style="margin-top:0">Peak CPU / memory / disk per node (%)</h2>
+  <div style="overflow-x:auto"><canvas id="ns-chartDistLoad" height="90"></canvas></div>
+</div>
+<div class="card">
+  <h2 style="margin-top:0">Average CPU / memory / disk per node (%)</h2>
+  <div style="overflow-x:auto"><canvas id="ns-chartDistLoadAvg" height="90"></canvas></div>
+</div>
+<div class="card">
+  <h2 style="margin-top:0">Peak RTT per node (ms)</h2>
+  <div style="overflow-x:auto"><canvas id="ns-chartDistRTT" height="90"></canvas></div>
+</div>
+<div class="card" style="overflow-x:auto">
+  <h2 style="margin-top:0">Per-node detail</h2>
+  <table style="min-width:600px">
+    <thead><tr><th>Address</th><th>Traffic (range)</th><th>Peak RTT</th><th>Peak CPU</th><th>Avg CPU</th><th>Peak Mem</th><th>Avg Mem</th><th>Peak Disk</th><th>Avg Disk</th><th>Peak BW</th></tr></thead>
+    <tbody id="ns-peaksTable"><tr><td colspan="10" class="text-muted">Loading…</td></tr></tbody>
+  </table>
+</div>
+</div>{{/* /ns-secPeaks */}}
+
+{{/* ── Users (fleet averages) -- moved here from the separate Users tab so
+     it shares the same Controls/Exits/Users type toggle as everything else
+     on this page, instead of living in its own place with its own toggle. */}}
+<div id="ns-secUserAvg" style="display:none">
+<h2 style="margin-top:1.5rem">Users &amp; traffic</h2>
+
+{{/* Scalar summary for the currently selected range (24h/7d/30d) --
+     same #ns-rangeToggle as the charts below, not a chart of its own. */}}
+<div style="display:flex;gap:1rem;margin-bottom:1.2rem;flex-wrap:wrap">
+  <div class="card" style="flex:1;min-width:180px;margin:0;padding:.9rem 1.2rem">
+    <div class="text-muted">Avg session duration</div>
+    <div style="font-size:1.4rem;font-weight:700;margin-top:.2rem"><span id="ns-avgSessionDuration">—</span></div>
+  </div>
+  <div class="card" style="flex:1;min-width:180px;margin:0;padding:.9rem 1.2rem">
+    <div class="text-muted">Distinct users connected</div>
+    <div style="font-size:1.4rem;font-weight:700;margin-top:.2rem"><span id="ns-distinctUsersConnected">—</span></div>
+  </div>
+</div>
+
+<div class="card"><h2 style="margin-top:0">Avg session duration (10-min buckets, sessions that ended in each bucket)</h2><canvas id="ns-chartSessionDuration" height="80"></canvas></div>
+<div class="card"><h2 style="margin-top:0">Active users (live, sampled every 10 min)</h2><canvas id="ns-chartUsers" height="80"></canvas></div>
+<div class="card"><h2 id="ns-hdrBytesPerUser" style="margin-top:0">Traffic per active user (per 10-min window)</h2><canvas id="ns-chartBytesPerUser" height="80"></canvas></div>
+
+<h2>BananaMeter tunnel diagnostics (all users, average across those with data)</h2>
+<div class="card"><h2 style="margin-top:0">Throughput (relative)</h2><canvas id="ns-chartUserBananaMbps" height="80"></canvas></div>
+<div class="card"><h2 style="margin-top:0">Ping (relative)</h2><canvas id="ns-chartUserBananaPing" height="80"></canvas></div>
+
+<h2>Connection health (all users, average across those with data)</h2>
+<div class="card"><h2 style="margin-top:0">Control pool size (TCP / UDP)</h2><canvas id="ns-chartUserPool" height="80"></canvas></div>
+<div class="card"><h2 style="margin-top:0">Unreachable controls</h2><canvas id="ns-chartUserUnreachable" height="80"></canvas></div>
+<div class="card"><h2 style="margin-top:0">Connects / disconnects (manual / auto)</h2><canvas id="ns-chartUserConnDisc" height="80"></canvas></div>
+<div class="card"><h2 style="margin-top:0">Rejected sessions</h2><canvas id="ns-chartUserRejected" height="80"></canvas></div>
+</div>{{/* /ns-secUserAvg */}}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+  var typeButtons = document.querySelectorAll('#ns-typeToggle button');
+  var rangeButtons = document.querySelectorAll('#ns-rangeToggle button');
+  var curType = 'control', curRange = '24h';
+  var charts = {};
+  var allPeakNodes = [];       // last fetch from /admin/api/network/peaks, unfiltered
+  var selectedNodeIds = null;  // Set of node_id currently checked; null = not built yet
+
+  // Traffic is auto-scaled (B/KB/MB/GB/TB) so chart axes stay readable
+  // regardless of fleet size or range — a fixed unit either shows raw byte
+  // counts in the billions, or rounds small per-user values to zero.
+  var BYTE_UNITS = [
+    { label: 'TB', div: 1024*1024*1024*1024 },
+    { label: 'GB', div: 1024*1024*1024 },
+    { label: 'MB', div: 1024*1024 },
+    { label: 'KB', div: 1024 },
+    { label: 'B',  div: 1 }
+  ];
+  function pickByteUnit(maxBytes){
+    for (var i=0;i<BYTE_UNITS.length;i++){
+      if (maxBytes >= BYTE_UNITS[i].div) return BYTE_UNITS[i];
+    }
+    return BYTE_UNITS[BYTE_UNITS.length-1];
+  }
+  // Per-value auto format, for standalone numbers (total card, table cells).
+  function fmtBytesAuto(n){
+    var u = pickByteUnit(n);
+    return (n / u.div).toFixed(u.div === 1 ? 0 : 2) + ' ' + u.label;
+  }
+  // Converts a whole series to one shared unit (picked from the series max)
+  // so every bar/point on a chart is comparable, and updates the given
+  // heading element to show which unit is in use.
+  function scaleSeriesForChart(rawValues, baseTitle, headingElId){
+    var maxVal = rawValues.length ? Math.max.apply(null, rawValues) : 0;
+    var u = pickByteUnit(maxVal || 1);
+    var el = document.getElementById(headingElId);
+    if (el) el.textContent = baseTitle + ' (' + u.label + ')';
+    return rawValues.map(function(v){ return v / u.div; });
+  }
+
+  function makeLineChart(canvasId, color){
+    var ctx = document.getElementById(canvasId).getContext('2d');
+    return new Chart(ctx, {
+      type: 'line',
+      data: { labels: [], datasets: [{ data: [], borderColor: color, backgroundColor: color+'22', pointRadius: 0, tension: .2 }] },
+      options: {
+        animation: false,
+        scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { beginAtZero: true } },
+        plugins: { legend: { display: false } }
+      }
+    });
+  }
+
+  // Bar charts default to horizontal scroll rather than squeezing bars as node
+  // count grows: each canvas is wrapped in an overflow-x:auto div, and the
+  // canvas itself is sized by JS to a fixed px-per-bar width (see resizeBarChart).
+  function makeBarChart(canvasId, datasets){
+    var canvas = document.getElementById(canvasId);
+    var ctx = canvas.getContext('2d');
+    return new Chart(ctx, {
+      type: 'bar',
+      data: { labels: [], datasets: datasets },
+      options: {
+        responsive: false,
+        maintainAspectRatio: false,
+        animation: false,
+        scales: { y: { beginAtZero: true } },
+        plugins: { legend: { display: datasets.length > 1 } }
+      }
+    });
+  }
+
+  var PX_PER_BAR = 70, MIN_CHART_WIDTH = 600, CHART_HEIGHT = 300;
+  function resizeBarChart(chart, barCount){
+    var width = Math.max(MIN_CHART_WIDTH, barCount * PX_PER_BAR);
+    chart.canvas.style.width = width + 'px';
+    chart.canvas.style.height = CHART_HEIGHT + 'px';
+    chart.resize(width, CHART_HEIGHT);
+  }
+
+  charts.sessionDuration = makeLineChart('ns-chartSessionDuration', '#22c55e');
+  charts.users        = makeLineChart('ns-chartUsers', '#7c3aed');
+  charts.bytesPerUser  = makeLineChart('ns-chartBytesPerUser', '#7c3aed');
+  charts.online        = makeLineChart('ns-chartOnline', '#0d6efd');
+  // "Average RTT" (charts.rtt, field rtt_ms) is the original probe-only
+  // health metric -- its meaning must stay fixed forever. "Routing RTT"
+  // (charts.routingRtt, field routing_rtt_ms) is a separate, newly added
+  // metric: the blended value a control node's own exit-selection logic
+  // actually uses (see routing_rtt_ms column comment in db.go). They must
+  // never be merged back into one chart/field (2026-08-10 incident).
+  charts.rtt           = makeLineChart('ns-chartRTT', '#0d6efd');
+  charts.routingRtt    = makeLineChart('ns-chartRoutingRTT', '#f97316');
+  // BananaMeter tunnel diagnostics (selected node type): bold overall-average
+  // line plus one thin colored line per node, so a throughput drop or ping
+  // spike can be traced to the specific responsible control/exit instead of
+  // staying an unexplained aggregate dip -- gated by the same curType toggle
+  // as the rest of this tab (requested 2026-08-10).
+  function makeDynamicLineChart(canvasId){
+    var ctx = document.getElementById(canvasId).getContext('2d');
+    return new Chart(ctx, {
+      type: 'line',
+      data: { labels: [], datasets: [] },
+      options: {
+        animation: false,
+        scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { beginAtZero: true } },
+        // position: 'bottom' so the per-node legend reads as a caption under
+        // the graph, not as part of the card header above the canvas.
+        plugins: { legend: { display: true, position: 'bottom' } }
+      }
+    });
+  }
+  charts.bananaMbps = makeDynamicLineChart('ns-chartBananaMbps');
+  charts.bananaPing = makeDynamicLineChart('ns-chartBananaPing');
+  var BANANA_NODE_COLORS = ['#0d6efd','#22c55e','#eab308','#ef4444','#7c3aed','#06b6d4','#f97316','#ec4899','#84cc16','#64748b'];
+  var bananaNodeAddrs = [];       // last fetched node roster for the selected type
+  var selectedBananaAddrs = null; // Set of currently-checked node addrs; null = not built yet
+  // Unreachability (selected node type): one bar per node, height = number
+  // of unreachable events in the last hour -- fixed 1h window, independent
+  // of the page's top-level 24h/7d/30d range selector, per explicit request
+  // ("высота столбца соответствует количеству недоступностей за последний
+  // час"). See /admin/api/network/unreachable/by-type (requested
+  // 2026-08-16, right after the same day's node-rotation work, specifically
+  // so "which node is unreachable more often" survives that node's own IP
+  // changing instead of resetting its history; shape changed from a
+  // time-series line, to a time-bucketed stacked bar, to a whole-range
+  // ranked total, to this fixed-last-hour bar on 2026-08-17 as the request
+  // was refined).
+  charts.unreachable = makeBarChart('ns-chartUnreachable', [{ data: [], backgroundColor: '#ef4444' }]);
+  var unreachNodeAddrs = [];       // last fetched node roster for the selected type
+  var selectedUnreachAddrs = null; // Set of currently-checked node addrs; null = not built yet
+  charts.bytes         = makeLineChart('ns-chartBytes', '#0d6efd');
+  charts.distBytes     = makeBarChart('ns-chartDistBytes', [{ data: [], backgroundColor: '#0d6efd' }]);
+  charts.distLoad      = makeBarChart('ns-chartDistLoad', [
+    { label: 'CPU', data: [], backgroundColor: '#198754' },
+    { label: 'Mem', data: [], backgroundColor: '#ffc107' },
+    { label: 'Disk', data: [], backgroundColor: '#dc3545' }
+  ]);
+  charts.distLoadAvg   = makeBarChart('ns-chartDistLoadAvg', [
+    { label: 'CPU', data: [], backgroundColor: '#198754' },
+    { label: 'Mem', data: [], backgroundColor: '#ffc107' },
+    { label: 'Disk', data: [], backgroundColor: '#dc3545' }
+  ]);
+  charts.distRTT       = makeBarChart('ns-chartDistRTT', [{ data: [], backgroundColor: '#0d6efd' }]);
+
+  // ── Users type: fleet-average charts (moved here from the separate Users
+  // tab so they share this page's Controls/Exits/Users type toggle instead
+  // of having their own). userBanana* are single-line fleet averages (reuse
+  // makeLineChart); userPool/userConnDisc need a fixed multi-series legend,
+  // so they get their own small helper rather than makeDynamicLineChart's
+  // empty-datasets shape (which is for a variable, roster-driven series count).
+  function makeMultiChart(canvasId, series){
+    var ctx = document.getElementById(canvasId).getContext('2d');
+    return new Chart(ctx, {
+      type: 'line',
+      data: { labels: [], datasets: series.map(function(s){
+        return { label: s.label, data: [], borderColor: s.color, backgroundColor: s.color+'22',
+          pointRadius: 0, tension: .2, spanGaps: true, borderDash: s.dash ? [5,3] : undefined };
+      }) },
+      options: {
+        animation: false,
+        scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { beginAtZero: true } },
+        plugins: { legend: { display: true, position: 'bottom' } }
+      }
+    });
+  }
+  charts.userBananaMbps = makeLineChart('ns-chartUserBananaMbps', '#7c3aed');
+  charts.userBananaPing = makeLineChart('ns-chartUserBananaPing', '#7c3aed');
+  charts.userPool        = makeMultiChart('ns-chartUserPool',        [{label:'TCP', color:'#0d6efd'}, {label:'UDP', color:'#0d6efd', dash:true}]);
+  charts.userUnreachable = makeMultiChart('ns-chartUserUnreachable', [{label:'unreachable', color:'#dc3545'}]);
+  charts.userConnDisc    = makeMultiChart('ns-chartUserConnDisc',    [
+    {label:'connects manual', color:'#22c55e'}, {label:'connects auto', color:'#22c55e', dash:true},
+    {label:'disconnects manual', color:'#f97316'}, {label:'disconnects auto', color:'#f97316', dash:true}
+  ]);
+  charts.userRejected    = makeMultiChart('ns-chartUserRejected',    [{label:'rejected sessions', color:'#ef4444'}]);
+
+  function loadUserAverages(){
+    fetch('/admin/api/network/bananameter?range=' + encodeURIComponent(curRange))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        var buckets = data.buckets || [];
+        var labels = buckets.map(function(b){ return fmtTsNS(b.ts); });
+        charts.userBananaMbps.data.labels = labels;
+        charts.userBananaMbps.data.datasets[0].data = buckets.map(function(b){ return b.client_avg_mbps; });
+        charts.userBananaMbps.update();
+        charts.userBananaPing.data.labels = labels;
+        charts.userBananaPing.data.datasets[0].data = buckets.map(function(b){ return b.client_avg_ping_ms; });
+        charts.userBananaPing.update();
+      });
+    fetch('/admin/api/network/conn-stats?range=' + encodeURIComponent(curRange))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        var buckets = data.buckets || [];
+        var labels = buckets.map(function(b){ return fmtTsNS(b.ts); });
+        function set(chart, arrs){
+          chart.data.labels = labels;
+          arrs.forEach(function(vals, i){ chart.data.datasets[i].data = vals; });
+          chart.update();
+        }
+        set(charts.userPool, [buckets.map(function(b){return b.pool_tcp;}), buckets.map(function(b){return b.pool_udp;})]);
+        set(charts.userUnreachable, [buckets.map(function(b){return b.unreachable_controls;})]);
+        set(charts.userConnDisc, [
+          buckets.map(function(b){return b.connects_manual;}), buckets.map(function(b){return b.connects_auto;}),
+          buckets.map(function(b){return b.disconnects_manual;}), buckets.map(function(b){return b.disconnects_auto;})
+        ]);
+        set(charts.userRejected, [buckets.map(function(b){return b.rejected_sessions;})]);
+      });
+    fetch('/admin/api/users/summary?range=' + encodeURIComponent(curRange))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        document.getElementById('ns-avgSessionDuration').textContent = fmtDuration(data.avg_session_seconds);
+        document.getElementById('ns-distinctUsersConnected').textContent = data.distinct_users;
+        var sdBuckets = data.session_duration_buckets || [];
+        charts.sessionDuration.data.labels = sdBuckets.map(function(b){ return fmtTsNS(b.ts); });
+        charts.sessionDuration.data.datasets[0].data = sdBuckets.map(function(b){ return b.avg_seconds; });
+        charts.sessionDuration.update();
+      });
+  }
+
+  // fmtDuration renders a seconds count as e.g. "1h 24m" / "3m 12s" / "0s" --
+  // avg session duration is the one summary number here that isn't a raw
+  // count, so it gets human formatting instead of a bare number of seconds.
+  function fmtDuration(totalSeconds){
+    var s = Math.round(totalSeconds || 0);
+    if (s <= 0) return '—';
+    var h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+    if (h > 0) return h + 'h ' + m + 'm';
+    if (m > 0) return m + 'm ' + sec + 's';
+    return sec + 's';
+  }
+
+  function fmtTsNS(ts){
+    var d = new Date(ts*1000);
+    return d.toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+  }
+
+  function loadUsage(){
+    fetch('/admin/api/network/usage?range=' + encodeURIComponent(curRange))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        var buckets = data.buckets || [];
+        var labels = buckets.map(function(b){ return fmtTsNS(b.ts); });
+
+        charts.users.data.labels = labels;
+        charts.users.data.datasets[0].data = buckets.map(function(b){ return b.active_users; });
+        charts.users.update();
+
+        var perUserRaw = buckets.map(function(b){ return b.bytes_per_user; });
+        charts.bytesPerUser.data.labels = labels;
+        charts.bytesPerUser.data.datasets[0].data = scaleSeriesForChart(perUserRaw, 'Traffic per active user (per 10-min window)', 'ns-hdrBytesPerUser');
+        charts.bytesPerUser.update();
+      });
+  }
+
+  function loadNetStats(){
+    fetch('/admin/api/network/stats?type=' + encodeURIComponent(curType) + '&range=' + encodeURIComponent(curRange))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        var buckets = data.buckets || [];
+        var labels = buckets.map(function(b){ return fmtTsNS(b.ts); });
+
+        document.getElementById('ns-totalBytes').textContent = fmtBytesAuto(data.total_bytes || 0);
+
+        charts.online.data.labels = labels;
+        charts.online.data.datasets[0].data = buckets.map(function(b){ return b.online_count; });
+        charts.online.update();
+
+        charts.rtt.data.labels = labels;
+        charts.rtt.data.datasets[0].data = buckets.map(function(b){ return b.rtt_ms; });
+        charts.rtt.update();
+
+        charts.routingRtt.data.labels = labels;
+        charts.routingRtt.data.datasets[0].data = buckets.map(function(b){ return b.routing_rtt_ms; });
+        charts.routingRtt.update();
+
+        var bytesRaw = buckets.map(function(b){ return b.bytes_transferred; });
+        charts.bytes.data.labels = labels;
+        charts.bytes.data.datasets[0].data = scaleSeriesForChart(bytesRaw, 'Data transferred (per 10-min bucket, summed)', 'ns-hdrBytes');
+        charts.bytes.update();
+      });
+  }
+
+  // ── Node filter (checkboxes) ────────────────────────────────────────────────
+  function buildNodeFilter(nodes){
+    selectedNodeIds = new Set(nodes.map(function(n){ return n.node_id; }));
+    var wrap = document.getElementById('ns-nodeFilter');
+    wrap.innerHTML = nodes.map(function(n){
+      return '<label style="display:flex;align-items:center;gap:.3rem;cursor:pointer">' +
+        '<input type="checkbox" checked data-node-id="' + n.node_id + '" onchange="nsToggleNode(' + n.node_id + ',this.checked)">' +
+        n.addr + '</label>';
+    }).join('');
+  }
+  window.nsToggleNode = function(nodeId, checked){
+    if (checked) selectedNodeIds.add(nodeId); else selectedNodeIds.delete(nodeId);
+    renderPeaks();
+  };
+  window.nsSelectAll = function(on){
+    document.querySelectorAll('#ns-nodeFilter input[type=checkbox]').forEach(function(cb){ cb.checked = on; });
+    selectedNodeIds = on ? new Set(allPeakNodes.map(function(n){ return n.node_id; })) : new Set();
+    renderPeaks();
+  };
+
+  function renderPeaks(){
+    var nodes = allPeakNodes.filter(function(n){ return selectedNodeIds.has(n.node_id); });
+    var labels = nodes.map(function(n){ return n.addr; });
+
+    resizeBarChart(charts.distBytes, nodes.length);
+    var distBytesRaw = nodes.map(function(n){ return n.bytes_transferred; });
+    charts.distBytes.data.labels = labels;
+    charts.distBytes.data.datasets[0].data = scaleSeriesForChart(distBytesRaw, 'Traffic distribution across nodes', 'ns-hdrDistBytes');
+    charts.distBytes.update();
+
+    resizeBarChart(charts.distLoad, nodes.length);
+    charts.distLoad.data.labels = labels;
+    charts.distLoad.data.datasets[0].data = nodes.map(function(n){ return n.peak_cpu_pct; });
+    charts.distLoad.data.datasets[1].data = nodes.map(function(n){ return n.peak_mem_pct; });
+    charts.distLoad.data.datasets[2].data = nodes.map(function(n){ return n.peak_disk_pct; });
+    charts.distLoad.update();
+
+    resizeBarChart(charts.distLoadAvg, nodes.length);
+    charts.distLoadAvg.data.labels = labels;
+    charts.distLoadAvg.data.datasets[0].data = nodes.map(function(n){ return n.avg_cpu_pct; });
+    charts.distLoadAvg.data.datasets[1].data = nodes.map(function(n){ return n.avg_mem_pct; });
+    charts.distLoadAvg.data.datasets[2].data = nodes.map(function(n){ return n.avg_disk_pct; });
+    charts.distLoadAvg.update();
+
+    resizeBarChart(charts.distRTT, nodes.length);
+    charts.distRTT.data.labels = labels;
+    charts.distRTT.data.datasets[0].data = nodes.map(function(n){ return n.peak_rtt_ms; });
+    charts.distRTT.update();
+
+    var tbody = document.getElementById('ns-peaksTable');
+    if (!nodes.length) {
+      tbody.innerHTML = '<tr><td colspan="10" class="text-muted">No nodes selected.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = nodes.map(function(n){
+      return '<tr><td style="font-family:monospace">' + n.addr + '</td>' +
+        '<td>' + fmtBytesAuto(n.bytes_transferred) + '</td>' +
+        '<td>' + n.peak_rtt_ms.toFixed(0) + ' ms</td>' +
+        '<td>' + n.peak_cpu_pct.toFixed(1) + '%</td>' +
+        '<td>' + n.avg_cpu_pct.toFixed(1) + '%</td>' +
+        '<td>' + n.peak_mem_pct.toFixed(1) + '%</td>' +
+        '<td>' + n.avg_mem_pct.toFixed(1) + '%</td>' +
+        '<td>' + n.peak_disk_pct.toFixed(1) + '%</td>' +
+        '<td>' + n.avg_disk_pct.toFixed(1) + '%</td>' +
+        '<td>' + n.peak_bw_mbps.toFixed(1) + ' Mbps</td></tr>';
+    }).join('');
+  }
+
+  function loadPeaks(){
+    fetch('/admin/api/network/peaks?type=' + encodeURIComponent(curType) + '&range=' + encodeURIComponent(curRange))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        var nodes = data.nodes || [];
+        var oldIds = allPeakNodes.map(function(n){ return n.node_id; });
+        var newIds = nodes.map(function(n){ return n.node_id; });
+        var rosterChanged = oldIds.length !== newIds.length ||
+          !newIds.every(function(id){ return oldIds.indexOf(id) !== -1; });
+        allPeakNodes = nodes;
+        // Only reset the checkbox filter (back to "all selected") when the node
+        // roster actually changed -- a type/range switch, or a node added/removed.
+        // A same-roster periodic refresh (the 10s tick below) falls through and
+        // keeps whatever subset of nodes the admin had checked.
+        if (rosterChanged || selectedNodeIds === null) buildNodeFilter(nodes);
+        renderPeaks();
+      });
+  }
+
+  // ── BananaMeter per-node filter (checkboxes) ────────────────────────────
+  function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function buildBananaNodeFilter(addrs){
+    selectedBananaAddrs = new Set(addrs);
+    var wrap = document.getElementById('ns-bananaNodeFilter');
+    wrap.innerHTML = addrs.map(function(addr, i){
+      var color = BANANA_NODE_COLORS[i % BANANA_NODE_COLORS.length];
+      return '<label style="display:flex;align-items:center;gap:.3rem;cursor:pointer">' +
+        '<input type="checkbox" checked data-addr="' + escHtml(addr) + '" onchange="nsbToggleNode(\'' + escHtml(addr) + '\',this.checked)">' +
+        '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + color + '"></span>' + escHtml(addr) + '</label>';
+    }).join('');
+  }
+  window.nsbToggleNode = function(addr, checked){
+    if (checked) selectedBananaAddrs.add(addr); else selectedBananaAddrs.delete(addr);
+    applyBananaFilter();
+  };
+  window.nsbSelectAll = function(on){
+    document.querySelectorAll('#ns-bananaNodeFilter input[type=checkbox]').forEach(function(cb){ cb.checked = on; });
+    selectedBananaAddrs = on ? new Set(bananaNodeAddrs) : new Set();
+    applyBananaFilter();
+  };
+  function applyBananaFilter(){
+    [charts.bananaMbps, charts.bananaPing].forEach(function(chart){
+      chart.data.datasets.forEach(function(ds){
+        if (ds.label === 'Overall average') return;
+        ds.hidden = !selectedBananaAddrs.has(ds.label);
+      });
+      chart.update();
+    });
+  }
+
+  function loadBananaByType(){
+    fetch('/admin/api/network/bananameter/by-type?type=' + encodeURIComponent(curType) + '&range=' + encodeURIComponent(curRange))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        var overall = data.overall || [];
+        var nodes = data.nodes || [];
+        var labels = overall.map(function(b){ return fmtTsNS(b.ts); });
+        var allTs = overall.map(function(b){ return b.ts; });
+
+        var addrs = nodes.map(function(n){ return n.addr; });
+        var rosterChanged = addrs.length !== bananaNodeAddrs.length ||
+          !addrs.every(function(a){ return bananaNodeAddrs.indexOf(a) !== -1; });
+        bananaNodeAddrs = addrs;
+        if (rosterChanged || selectedBananaAddrs === null) buildBananaNodeFilter(addrs);
+
+        var mbpsDatasets = [{
+          label: 'Overall average', data: overall.map(function(b){ return b.avg_mbps; }),
+          borderColor: '#111', backgroundColor: '#1111', borderWidth: 3, pointRadius: 0, tension: .2, spanGaps: true
+        }];
+        var pingDatasets = [{
+          label: 'Overall average', data: overall.map(function(b){ return b.avg_ping_ms; }),
+          borderColor: '#111', backgroundColor: '#1111', borderWidth: 3, pointRadius: 0, tension: .2, spanGaps: true
+        }];
+
+        nodes.forEach(function(n, i){
+          var color = BANANA_NODE_COLORS[i % BANANA_NODE_COLORS.length];
+          var byTs = {};
+          n.buckets.forEach(function(b){ byTs[b.ts] = b; });
+          var mbpsData = allTs.map(function(ts){ return byTs[ts] ? byTs[ts].avg_mbps : null; });
+          var pingData = allTs.map(function(ts){ return byTs[ts] ? byTs[ts].avg_ping_ms : null; });
+          var hidden = selectedBananaAddrs !== null && !selectedBananaAddrs.has(n.addr);
+          mbpsDatasets.push({ label: n.addr, data: mbpsData, borderColor: color, backgroundColor: color+'22', borderWidth: 1, pointRadius: 0, tension: .2, spanGaps: true, hidden: hidden });
+          pingDatasets.push({ label: n.addr, data: pingData, borderColor: color, backgroundColor: color+'22', borderWidth: 1, pointRadius: 0, tension: .2, spanGaps: true, hidden: hidden });
+        });
+
+        charts.bananaMbps.data.labels = labels;
+        charts.bananaMbps.data.datasets = mbpsDatasets;
+        charts.bananaMbps.update();
+
+        charts.bananaPing.data.labels = labels;
+        charts.bananaPing.data.datasets = pingDatasets;
+        charts.bananaPing.update();
+      });
+  }
+
+  // ── Unreachability per-node filter (checkboxes) ─────────────────────────
+  function buildUnreachNodeFilter(addrs){
+    selectedUnreachAddrs = new Set(addrs);
+    var wrap = document.getElementById('ns-unreachNodeFilter');
+    wrap.innerHTML = addrs.map(function(addr, i){
+      var color = BANANA_NODE_COLORS[i % BANANA_NODE_COLORS.length];
+      return '<label style="display:flex;align-items:center;gap:.3rem;cursor:pointer">' +
+        '<input type="checkbox" checked data-addr="' + escHtml(addr) + '" onchange="nsuToggleNode(\'' + escHtml(addr) + '\',this.checked)">' +
+        '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + color + '"></span>' + escHtml(addr) + '</label>';
+    }).join('');
+  }
+  window.nsuToggleNode = function(addr, checked){
+    if (checked) selectedUnreachAddrs.add(addr); else selectedUnreachAddrs.delete(addr);
+    applyUnreachFilter();
+  };
+  window.nsuSelectAll = function(on){
+    document.querySelectorAll('#ns-unreachNodeFilter input[type=checkbox]').forEach(function(cb){ cb.checked = on; });
+    selectedUnreachAddrs = on ? new Set(unreachNodeAddrs) : new Set();
+    applyUnreachFilter();
+  };
+  function applyUnreachFilter(){ renderUnreachable(); }
+
+  // allUnreachTotals: last fetched per-node event counts for the fixed
+  // last-hour window, cached so the checkbox filter can re-render instantly
+  // without a network round trip -- same shape/convention as allPeakNodes
+  // above.
+  var allUnreachTotals = [];
+
+  function renderUnreachable(){
+    var nodes = allUnreachTotals.filter(function(n){ return selectedUnreachAddrs.has(n.addr); });
+    // Ranked: the whole point is "which node is unreachable most often",
+    // so the most-unreachable node must be the first bar, not whichever
+    // order the API happened to return.
+    nodes.sort(function(a, b){ return b.total - a.total; });
+
+    resizeBarChart(charts.unreachable, nodes.length);
+    charts.unreachable.data.labels = nodes.map(function(n){ return n.addr; });
+    charts.unreachable.data.datasets[0].data = nodes.map(function(n){ return n.total; });
+    charts.unreachable.update();
+  }
+
+  function loadUnreachableByType(){
+    // range is hardcoded to the last hour here, deliberately independent of
+    // the page's top-level curRange selector -- this chart always answers
+    // "how many times unreachable in the last hour", not "in the currently
+    // selected 24h/7d/30d window".
+    fetch('/admin/api/network/unreachable/by-type?type=' + encodeURIComponent(curType) + '&range=1h')
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        var nodes = data.nodes || [];
+
+        var addrs = nodes.map(function(n){ return n.addr; });
+        var rosterChanged = addrs.length !== unreachNodeAddrs.length ||
+          !addrs.every(function(a){ return unreachNodeAddrs.indexOf(a) !== -1; });
+        unreachNodeAddrs = addrs;
+        if (rosterChanged || selectedUnreachAddrs === null) buildUnreachNodeFilter(addrs);
+
+        // Sum each node's buckets into one total for the last hour --
+        // "how many times has this node been unreachable in the last hour".
+        allUnreachTotals = nodes.map(function(n){
+          var total = n.buckets.reduce(function(sum, b){ return sum + b.count; }, 0);
+          return { addr: n.addr, total: total };
+        });
+        renderUnreachable();
+      });
+  }
+
+  // Controls/Exits sections (load-factor form, by-type BananaMeter, network
+  // health, peaks/distribution) don't apply to the Users type and vice versa
+  // (the fleet-average user charts don't apply to a single node type) --
+  // see the ns-secXxx wrapper divs in the template.
+  function updateTypeSectionVisibility(){
+    var userMode = (curType === 'user');
+    ['ns-secLoadFactor', 'ns-secBananaByType', 'ns-secNetHealth', 'ns-secPeaks', 'ns-totalBytesCard'].forEach(function(id){
+      document.getElementById(id).style.display = userMode ? 'none' : '';
+    });
+    // Unreachability is control-only: it's built from what clients report
+    // about controls they couldn't reach -- there is no exit-side data.
+    document.getElementById('ns-secUnreachable').style.display = (curType === 'control') ? '' : 'none';
+    document.getElementById('ns-secUserAvg').style.display = userMode ? '' : 'none';
+  }
+
+  function loadAll(){
+    if (curType === 'user') {
+      loadUsage();
+      loadUserAverages();
+    } else {
+      loadNetStats();
+      loadPeaks();
+      loadBananaByType();
+      if (curType === 'control') loadUnreachableByType();
+    }
+  }
+  setInterval(loadAll, 10000);
+
+  // Routing RTT (routing_rtt_ms) is only ever sent by controls -- it's the
+  // RTT a control blends when picking which exit to route through, and has
+  // no meaning for an exit node itself (snc-exit never populates this field
+  // in its heartbeat). Shown only on the Controls type, since on Exits it's
+  // structurally always zero for the whole range -- not a data bug, just a
+  // metric that doesn't apply there (found 2026-08-12: a flat-zero 24h chart
+  // on the Exits tab looked like broken collection, but the collection side
+  // was fine -- the chart just shouldn't have been visible for that type).
+  function updateRoutingRTTVisibility(){
+    document.getElementById('ns-cardRoutingRTT').style.display = (curType === 'control') ? '' : 'none';
+  }
+
+  typeButtons.forEach(function(btn){
+    btn.onclick = function(){
+      typeButtons.forEach(function(b){ b.classList.remove('btn-primary'); });
+      btn.classList.add('btn-primary');
+      curType = btn.dataset.type;
+      updateRoutingRTTVisibility();
+      updateTypeSectionVisibility();
+      selectedBananaAddrs = null; // force filter rebuild for the new type's roster
+      loadAll();
+    };
+  });
+  rangeButtons.forEach(function(btn){
+    btn.onclick = function(){
+      rangeButtons.forEach(function(b){ b.classList.remove('btn-primary'); });
+      btn.classList.add('btn-primary');
+      curRange = btn.dataset.range;
+      loadAll();
+    };
+  });
+  typeButtons[0].classList.add('btn-primary');
+  rangeButtons[0].classList.add('btn-primary');
+  updateRoutingRTTVisibility();
+  updateTypeSectionVisibility();
+  loadAll();
+})();
+</script>
+{{end}}
+
+<script>
+// ── Dashboard stat cards: AJAX refresh every 10 s ─────────────────────────────
+(function() {
+  var HEALTH_HTML = {
+    green:  '<span style="font-size:2rem;line-height:1" title="All nodes online">🟢</span><span style="font-size:.8rem;color:#22c55e;font-weight:600">Healthy</span>',
+    yellow: '<span style="font-size:2rem;line-height:1" title="Some nodes offline">🟡</span><span style="font-size:.8rem;color:#eab308;font-weight:600">Degraded</span>',
+    red:    '<span style="font-size:2rem;line-height:1" title="Critical: exits or controls offline">🔴</span><span style="font-size:.8rem;color:#ef4444;font-weight:600">Critical</span>'
+  };
+  function set(id, val) { var el = document.getElementById(id); if (el) el.textContent = val; }
+  function poll() {
+    fetch('/admin/api/dashboard/stats')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        set('ds-online-ctrl',   d.online_ctrl);
+        set('ds-total-ctrl',    d.total_ctrl);
+        set('ds-online-egress', d.online_egress);
+        set('ds-total-egress',  d.total_egress);
+        set('ds-active-users',  d.active_users);
+        set('ds-total-users',   d.total_users);
+        set('ds-all-accounts',  d.all_accounts);
+        set('ds-cat-club-online', d.cat_club_online);
+        set('ds-elite-club-online', d.elite_club_online);
+        var hc = document.getElementById('ds-health-card');
+        if (hc && HEALTH_HTML[d.health]) hc.innerHTML = HEALTH_HTML[d.health];
+      })
+      .catch(function() {}); // silent on error — stale values stay
+  }
+  setInterval(poll, 10000);
+})();
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── Add node ──────────────────────────────────────────────────────────────────
+function toggleAddNode() {
+  var el = document.getElementById('add-node-card');
+  el.style.display = el.style.display === 'none' ? '' : 'none';
+  if (el.style.display !== 'none') document.getElementById('an-host').focus();
+}
+function anToggleAuth(v) {
+  document.getElementById('an-auth-password').style.display = v === 'password' ? '' : 'none';
+  document.getElementById('an-auth-key').style.display      = v === 'key'      ? '' : 'none';
+}
+function doAddNode() {
+  var type    = document.getElementById('an-type').value;
+  var host    = document.getElementById('an-host').value.trim();
+  var user    = document.getElementById('an-user').value.trim();
+  var authEl  = document.querySelector('input[name="an-auth"]:checked');
+  var auth    = authEl ? authEl.value : 'password';
+  var password= document.getElementById('an-password').value;
+  var privKey = document.getElementById('an-key').value;
+  var desc    = document.getElementById('an-desc').value.trim();
+  var res     = document.getElementById('an-result');
+  if (!host) { res.innerHTML = '<span style="color:#dc3545">Server IP is required.</span>'; return; }
+  res.innerHTML = 'Registering…';
+  var body = {type:type, ssh_host:host, ssh_user:user, auth_method:auth, description:desc};
+  if (auth === 'password') body.password = password;
+  else body.priv_key = privKey;
+  fetch('/api/admin/node', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+    .then(r=>r.json()).then(d=>{
+      if (d.error) { res.innerHTML='<span style="color:#dc3545">Error: '+esc(d.error)+'</span>'; return; }
+      var tokenBtn = '<button class="btn btn-primary" style="font-size:12px;padding:2px 8px;margin-left:.5rem" '+
+        'onclick="navigator.clipboard.writeText(\''+d.token.replace(/\\/g,'\\\\').replace(/'/g,"\\'")+'\').then(()=>alert(\'Copied!\'))">Copy</button>';
+      res.innerHTML = '<strong>Registered '+esc(d.type)+' '+esc(d.addr)+' (id='+esc(d.id)+')</strong><br>Token: <code>'+esc(d.token)+'</code>'+tokenBtn;
+      if (d.deploying) {
+        res.innerHTML += '<br><span id="an-deploy-status" style="color:#0d6efd">Deploy: queued…</span>';
+        anPollDeploy(d.id);
+      }
+      document.getElementById('an-host').value='';
+      document.getElementById('an-user').value='';
+      document.getElementById('an-password').value='';
+      document.getElementById('an-key').value='';
+      document.getElementById('an-desc').value='';
+    }).catch(e=>{ res.innerHTML='<span style="color:#dc3545">Network error: '+e+'</span>'; });
+}
+function anPollDeploy(id) {
+  (function tick() {
+    fetch('/admin/api/nodes/' + id + '/deploy-status')
+      .then(r=>r.json()).then(d=>{
+        var el = document.getElementById('an-deploy-status');
+        if (!el) return;
+        var color = {queued:'#888', running:'#0d6efd', done:'#198754', failed:'#dc3545', token_pending:'#ffc107'}[d.status] || '#888';
+        el.style.color = color;
+        el.textContent = 'Deploy: ' + (d.status || '—');
+        if (d.log) {
+          var logId = 'an-deploy-log';
+          var existing = document.getElementById(logId);
+          if (!existing) {
+            var pre = document.createElement('pre');
+            pre.id = logId;
+            pre.style.cssText = 'margin-top:.4rem;font-size:11px;background:#1a1a2e;color:#adf;padding:.5rem;border-radius:4px;max-height:200px;overflow-y:auto';
+            el.parentNode.insertBefore(pre, el.nextSibling);
+          }
+          document.getElementById(logId).textContent = d.log;
+        }
+        if (!d.done) setTimeout(tick, 3000);
+      }).catch(()=>{ setTimeout(tick, 5000); });
+  })();
+}
+
+// ── Users tab ─────────────────────────────────────────────────────────────────
+// Fleet-average BananaMeter/connection-stats charts live on the Network
+// Stats tab now (type toggle: Controls / Exits / Users) -- this tab is just
+// the searchable per-user list below.
+{{if eq .Data.Tab "users"}}
+function fmtBytes(n) {
+  if (n < 1024) return n + ' B';
+  const units = ['KB','MB','GB','TB'];
+  let i = -1;
+  do { n /= 1024; i++; } while (n >= 1024 && i < units.length - 1);
+  return n.toFixed(1) + ' ' + units[i];
+}
+const openPanels = new Set();
+let usersTimer = null;
+function loadUsers() { clearTimeout(usersTimer); usersTimer = setTimeout(doLoadUsers, 200); }
+function doLoadUsers() {
+  const q = encodeURIComponent((document.getElementById('search')||{value:''}).value.trim());
+  fetch('/admin/api/users/stats?only=users&q='+q).then(r=>r.json()).then(data=>renderStats(data.users||[]))
+    .catch(e=>{document.getElementById('stats-wrap').innerHTML='<p class="text-muted">Error: '+e+'</p>';});
+}
+function renderStats(rows) {
+  rows.sort((a,b)=>a.username.localeCompare(b.username));
+  const wrap=document.getElementById('stats-wrap');
+  if(!rows.length){wrap.innerHTML='<p class="text-muted">No data.</p>';return;}
+  let html='<div style="display:flex;gap:1rem;align-items:center;margin-bottom:.6rem;font-size:12px">'+
+    '<span style="display:inline-flex;align-items:center;gap:.3rem"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e"></span>active (≤5 min)</span>'+
+    '<span style="display:inline-flex;align-items:center;gap:.3rem"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#eab308"></span>recently active (≤30 min)</span>'+
+    '</div>';
+  html+='<table><thead><tr><th></th><th>Username</th><th>Status</th><th>Country</th><th>First seen</th><th>Last seen</th><th>Up</th><th>Down</th><th>Connections</th></tr></thead><tbody>';
+  for(const r of rows){
+    const u=esc(r.username);
+    const rowStyle=r.suspended?'background:rgba(239,68,68,.07);border-left:3px solid #ef4444':
+                   r.active?'background:rgba(34,197,94,.08);border-left:3px solid #22c55e':
+                   r.recent?'background:rgba(234,179,8,.07);border-left:3px solid #eab308':
+                   'border-left:3px solid transparent';
+    const dot=r.active?'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e;margin-right:4px" title="active now"></span>':
+              r.recent?'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#eab308;margin-right:4px" title="recently active"></span>':'';
+    const statusCell=r.suspended
+      ?'<span class="badge badge-rejected" style="font-size:11px">suspended</span> <button class="btn btn-success" style="font-size:11px;padding:1px 6px" onclick="resumeUser(\''+u+'\')">Unsuspend</button>'
+      :'<button class="btn btn-warning" style="font-size:11px;padding:1px 6px" onclick="suspendUser(\''+u+'\')">Suspend</button>';
+    html+='<tr id="urow-'+u+'" style="'+rowStyle+'"><td style="padding:4px 6px;white-space:nowrap"><button class="btn btn-primary" style="font-size:12px;padding:2px 8px" onclick="toggleKeys(event,\''+u+'\')">▶ Keys</button> <button class="btn" style="font-size:12px;padding:2px 8px" onclick="openEmailModal(\''+u+'\')">✉</button></td>'+
+      '<td>'+dot+'<a href="/admin/users/'+encodeURIComponent(r.username)+'/stats" style="text-decoration:none">'+u+'</a></td><td>'+statusCell+'</td><td>'+(r.country?'<span class="badge badge-approved">'+esc(r.country)+'</span>':'<span class="text-muted">—</span>')+'</td>'+
+      '<td class="text-muted">'+esc(r.first_seen)+'</td><td class="text-muted">'+esc(r.last_seen)+'</td>'+
+      '<td>'+fmtBytes(r.bytes_up)+'</td><td>'+fmtBytes(r.bytes_down)+'</td><td>'+r.conns+'</td>'+
+      '</tr><tr id="krow-'+u+'" style="display:none"><td colspan="9" style="padding:0 0 12px 2rem"><div id="kpanel-'+u+'" style="padding:.6rem 1rem;background:#1a1a2e;border-radius:4px"></div></td></tr>';
+  }
+  wrap.innerHTML=html+'</tbody></table>';
+  // Re-expand any key panels that were open before this refresh rebuilt the
+  // table -- otherwise the 10s periodic refresh would silently collapse
+  // whatever an admin currently has open.
+  openPanels.forEach(function(u){
+    const krow=document.getElementById('krow-'+u);
+    if(!krow)return;
+    krow.style.display='';
+    const btn=document.querySelector('#urow-'+u+' button');
+    if(btn)btn.textContent='▼ Keys';
+    loadKeys(u);
+  });
+}
+function toggleKeys(evt,username){
+  evt.stopPropagation();
+  const krow=document.getElementById('krow-'+username),btn=evt.currentTarget;
+  if(openPanels.has(username)){openPanels.delete(username);krow.style.display='none';btn.textContent='▶ Keys';return;}
+  openPanels.add(username);krow.style.display='';btn.textContent='▼ Keys';loadKeys(username);
+}
+function loadKeys(username){
+  const panel=document.getElementById('kpanel-'+username);
+  panel.innerHTML='<p class="text-muted" style="margin:.4rem 0">Loading…</p>';
+  fetch('/admin/api/users/'+encodeURIComponent(username)+'/keys').then(r=>r.json()).then(keys=>renderKeysPanel(username,keys))
+    .catch(e=>{panel.innerHTML='<p class="text-muted">Error: '+e+'</p>';});
+}
+function renderKeysPanel(username,keys){
+  const panel=document.getElementById('kpanel-'+username),u=esc(username);
+  let html='<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.6rem">'+
+    '<button class="btn btn-danger" style="font-size:12px;padding:3px 10px" onclick="setUserEnabled(\''+u+'\',false)">Disable user</button>'+
+    '<button class="btn btn-success" style="font-size:12px;padding:3px 10px" onclick="setUserEnabled(\''+u+'\',true)">Enable user</button>'+
+    '<button class="btn btn-primary" style="font-size:12px;padding:3px 10px" onclick="doIssueKey(\''+u+'\')">+ Issue key</button>'+
+    '</div><div id="issue-result-'+u+'" style="margin-top:.5rem"></div>';
+  if(!keys.length){html+='<p class="text-muted" style="margin:.2rem 0">No keys registered.</p>';}
+  else{
+    html+='<table style="font-size:13px;width:100%"><thead><tr><th>Key prefix</th><th>Device</th><th>Source</th><th>Bound</th><th>Last seen</th><th>Status</th><th>Expires</th><th>∞ Devices</th><th>Actions</th></tr></thead><tbody>';
+    for(const k of keys){
+      const prefix=esc(k.key_id.substring(0,8))+'…',device=k.device_name?esc(k.device_name):'<span class="text-muted">—</span>';
+      const source=k.source?esc(k.source):'<span class="text-muted">—</span>';
+      const badge=k.enabled?'<span class="badge badge-approved">enabled</span>':'<span class="badge badge-rejected">disabled</span>';
+      const tog=k.enabled?'<button class="btn btn-warning" style="font-size:11px;padding:1px 6px;margin-right:3px" onclick="setKeyEnabled(\''+esc(k.key_id)+'\',false,\''+u+'\')">Disable</button>':
+        '<button class="btn btn-success" style="font-size:11px;padding:1px 6px;margin-right:3px" onclick="setKeyEnabled(\''+esc(k.key_id)+'\',true,\''+u+'\')">Enable</button>';
+      const unb=k.device_id?'<button class="btn btn-primary" style="font-size:11px;padding:1px 6px" onclick="adminUnbind(\''+esc(k.key_id)+'\',\''+u+'\')">Unbind</button>':'';
+      const kid=esc(k.key_id);
+      const expCell='<input type="date" id="exp-'+kid+'" value="'+esc(k.paid_until||'')+'" style="font-size:11px;padding:1px 3px;width:110px"> '+
+        '<button class="btn btn-primary" style="font-size:11px;padding:1px 5px" onclick="setKeyExpiry(\''+kid+'\',\''+u+'\')">Set</button>';
+      const unlimCell='<input type="checkbox" id="unlim-'+kid+'" '+(k.unlimited_devices?'checked':'')+
+        ' onchange="setKeyUnlimited(\''+kid+'\',this.checked,\''+u+'\')" style="width:16px;height:16px;cursor:pointer">';
+      html+='<tr><td><code>'+prefix+'</code></td><td>'+device+'</td><td class="text-muted">'+source+'</td><td class="text-muted">'+esc(k.bound_at||'—')+'</td><td class="text-muted">'+esc(k.last_seen||'—')+'</td><td>'+badge+'</td><td style="white-space:nowrap">'+expCell+'</td><td style="text-align:center">'+unlimCell+'</td><td>'+tog+unb+'</td></tr>';
+    }
+    html+='</tbody></table>';
+  }
+  panel.innerHTML=html;
+}
+function doIssueKey(username){
+  const resultEl=document.getElementById('issue-result-'+username);
+  resultEl.innerHTML='<span class="text-muted">Generating…</span>';
+  fetch('/admin/api/users/'+encodeURIComponent(username)+'/issue-key',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+    .then(r=>r.json()).then(d=>{
+      if(!d.key){resultEl.innerHTML='<span style="color:#f66">Error: '+esc(JSON.stringify(d))+'</span>';return;}
+      resultEl.innerHTML='<div style="margin:.4rem 0"><strong>New key ('+esc(d.key_id.substring(0,8))+'…):</strong></div>'+
+        '<textarea readonly style="width:100%;height:80px;font-size:11px;font-family:monospace;background:#111;color:#adf;border:1px solid #444;padding:6px;border-radius:4px">'+esc(d.key)+'</textarea>'+
+        '<button class="btn btn-primary" style="font-size:12px;padding:3px 10px;margin-top:.3rem" onclick="navigator.clipboard.writeText(\''+d.key.replace(/\\/g,'\\\\').replace(/'/g,"\\'")+'\').then(()=>alert(\'Copied!\'))">Copy</button>';
+      loadKeys(username);
+    }).catch(e=>{resultEl.innerHTML='<span style="color:#f66">Network error: '+e+'</span>';});
+}
+function setKeyEnabled(keyID,enable,username){
+  fetch('/admin/api/keys/'+encodeURIComponent(keyID)+'/'+(enable?'enable':'disable'),{method:'POST'})
+    .then(r=>r.json()).then(d=>{if(d.ok)loadKeys(username);else alert('Error: '+JSON.stringify(d));}).catch(e=>alert(e));
+}
+function adminUnbind(keyID,username){
+  if(!confirm('Unbind device from this key?'))return;
+  fetch('/admin/api/keys/'+encodeURIComponent(keyID)+'/unbind',{method:'POST'})
+    .then(r=>r.json()).then(d=>{if(d.ok)loadKeys(username);else alert('Error: '+JSON.stringify(d));}).catch(e=>alert(e));
+}
+function setKeyUnlimited(keyID,unlimited,username){
+  fetch('/admin/api/keys/'+encodeURIComponent(keyID)+'/set-unlimited',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({unlimited:unlimited})})
+    .then(r=>r.json()).then(d=>{if(!d.ok)alert('Error: '+JSON.stringify(d));}).catch(e=>alert(e));
+}
+function setKeyExpiry(keyID,username){
+  const val=document.getElementById('exp-'+keyID).value;
+  fetch('/admin/api/keys/'+encodeURIComponent(keyID)+'/set-paid-until',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paid_until:val})})
+    .then(r=>r.json()).then(d=>{if(d.ok)loadKeys(username);else alert('Error: '+JSON.stringify(d));}).catch(e=>alert(e));
+}
+function setUserEnabled(username,enable){
+  fetch('/admin/api/users/'+encodeURIComponent(username)+'/'+(enable?'enable':'disable'),{method:'POST'})
+    .then(r=>r.json()).then(d=>{if(d.ok)doLoadUsers();else alert('Error: '+JSON.stringify(d));}).catch(e=>alert(e));
+}
+function suspendUser(username){
+  if(!confirm('Suspend '+username+'? They will not be able to connect.'))return;
+  fetch('/admin/api/users/'+encodeURIComponent(username)+'/disable',{method:'POST'})
+    .then(r=>r.json()).then(d=>{if(d.ok)doLoadUsers();else alert('Error: '+JSON.stringify(d));}).catch(e=>alert(e));
+}
+function resumeUser(username){
+  fetch('/admin/api/users/'+encodeURIComponent(username)+'/enable',{method:'POST'})
+    .then(r=>r.json()).then(d=>{if(d.ok)doLoadUsers();else alert('Error: '+JSON.stringify(d));}).catch(e=>alert(e));
+}
+doLoadUsers();
+setInterval(doLoadUsers,10000);
+
+let _emailUser='';
+function openEmailModal(username){
+  _emailUser=username;
+  document.getElementById('em-user').textContent=username;
+  document.getElementById('em-subject').value='';
+  document.getElementById('em-body').value='';
+  document.getElementById('em-status').textContent='';
+  document.getElementById('em-status').style.color='';
+  document.getElementById('emailModal').style.display='flex';
+  setTimeout(()=>document.getElementById('em-subject').focus(),50);
+}
+function closeEmailModal(){document.getElementById('emailModal').style.display='none';}
+function doEmailSend(){
+  const subject=document.getElementById('em-subject').value.trim();
+  const body=document.getElementById('em-body').value.trim();
+  const status=document.getElementById('em-status');
+  if(!subject||!body){status.style.color='#f77';status.textContent='Subject and body required.';return;}
+  status.style.color='';status.textContent='Sending…';
+  fetch('/admin/api/users/'+encodeURIComponent(_emailUser)+'/email',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({subject,body}),
+  }).then(r=>r.json()).then(d=>{
+    if(d.ok){status.style.color='#7df';status.textContent='Sent!';setTimeout(closeEmailModal,1200);}
+    else{status.style.color='#f77';status.textContent='Error: '+JSON.stringify(d);}
+  }).catch(e=>{status.style.color='#f77';status.textContent='Network error: '+e;});
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeEmailModal();});
+{{end}}
+
+</script>
+
+<div id="emailModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:999;align-items:center;justify-content:center">
+  <div style="background:#1a1a2e;border:1px solid rgba(125,220,255,.25);border-radius:8px;padding:1.5rem;width:min(500px,92vw);box-shadow:0 8px 40px rgba(0,0,0,.8)">
+    <h3 style="margin:0 0 1rem;color:#7DDDFF;font-size:16px">Email to <span id="em-user"></span></h3>
+    <div style="margin-bottom:.75rem">
+      <label style="display:block;font-size:12px;color:#aaa;margin-bottom:.3rem">Subject</label>
+      <input id="em-subject" type="text" style="width:100%;box-sizing:border-box;padding:6px 8px;background:#111;color:#eee;border:1px solid #444;border-radius:4px;font-size:14px">
+    </div>
+    <div style="margin-bottom:1rem">
+      <label style="display:block;font-size:12px;color:#aaa;margin-bottom:.3rem">Body</label>
+      <textarea id="em-body" rows="7" style="width:100%;box-sizing:border-box;padding:6px 8px;background:#111;color:#eee;border:1px solid #444;border-radius:4px;resize:vertical;font-size:14px"></textarea>
+    </div>
+    <div style="display:flex;gap:.5rem;justify-content:flex-end;align-items:center">
+      <span id="em-status" style="font-size:13px;flex:1"></span>
+      <button class="btn" onclick="closeEmailModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="doEmailSend()">Send</button>
+    </div>
+  </div>
+</div>
+
+{{end}}
+
+{{/* ── Node table partial ──────────────────────────────────────────────── */}}
+{{define "node-table"}}
+{{if .}}
+<style>
+@media(max-width:700px){
+  .col-heartbeat,.col-added,.col-caps{display:none}
+}
+.nm-item{display:block;padding:.38rem .85rem;color:#222;cursor:pointer;font-size:13px;text-decoration:none;white-space:nowrap}
+.nm-item:hover{background:#f0f0f0}
+.nm-item.nm-danger{color:#dc2626}
+.nm-item.nm-danger:hover{background:#fef2f2}
+</style>
+<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+<table style="min-width:480px">
+  <tr>
+    <th>Status</th>
+    <th>Address</th>
+    <th>Region</th>
+    <th class="col-heartbeat">Last heartbeat</th>
+    <th class="col-added">Added</th>
+    <th class="col-caps">Caps</th>
+    <th>Action</th>
+  </tr>
+  {{range .}}
+  <tr>
+    <td style="white-space:nowrap">
+      {{if eq .Status "suspended"}}
+        <span style="color:#dc3545;font-size:1.1em" title="suspended">●</span>
+        <span class="badge badge-rejected">suspended</span>
+      {{else if .IsOnline}}
+        {{if .DataPlaneOK}}
+          {{if (derefBool .DataPlaneOK)}}
+            <span style="color:#22c55e;font-size:1.1em" title="online, data plane OK">●</span>
+            <span class="badge badge-approved">online</span>
+          {{else}}
+            <span style="color:#f97316;font-size:1.1em" title="online, data plane FAIL">●</span>
+            <span class="badge badge-suspended">degraded</span>
+          {{end}}
+        {{else}}
+          <span style="color:#eab308;font-size:1.1em" title="online, data plane not yet reported">●</span>
+          <span class="badge badge-approved">online</span>
+        {{end}}
+      {{else}}
+        <span style="color:#6b7280;font-size:1.1em" title="offline">●</span>
+        <span class="badge badge-suspended">offline</span>
+      {{end}}
+    </td>
+    <td style="font-family:monospace;font-size:13px">
+      <a href="/admin/nodes/{{.ID}}/stats">{{stripPort .Addr}}</a>
+      {{if or .Location .Provider}}
+        <div class="text-muted" style="font-family:inherit;font-size:11px;white-space:nowrap">
+          {{if .Location}}{{.Location}}{{end}}{{if and .Location .Provider}} · {{end}}{{if .Provider}}({{.Provider}}){{end}}
+        </div>
+      {{end}}
+    </td>
+    <td style="white-space:nowrap">
+      <div style="display:flex;align-items:center;gap:.3rem">
+        <select id="rgn-{{.ID}}" style="font-size:12px;padding:1px 4px;min-width:110px"
+                onchange="setRegion({{.ID}},this.value)">
+          <option value="" {{if eq .RegionOverride ""}} selected{{end}}>
+            {{- if .CIDRRegion}}Auto ({{.CIDRRegion}}){{else}}UNKNOWN{{end -}}
+          </option>
+          <option value="RU"    {{if eq .RegionOverride "RU"}}    selected{{end}}>RU</option>
+          <option value="EU"    {{if eq .RegionOverride "EU"}}    selected{{end}}>EU</option>
+          <option value="US"    {{if eq .RegionOverride "US"}}    selected{{end}}>US</option>
+          <option value="CN"    {{if eq .RegionOverride "CN"}}    selected{{end}}>CN</option>
+          <option value="IR"    {{if eq .RegionOverride "IR"}}    selected{{end}}>IR</option>
+          <option value="OTHER" {{if eq .RegionOverride "OTHER"}} selected{{end}}>OTHER</option>
+        </select>
+        {{if .RegionOverride}}
+          <span class="badge badge-approved" title="manual override">●</span>
+        {{end}}
+        <label style="display:flex;align-items:center;gap:2px;font-size:11px;cursor:pointer" title="Pinned: always in manifests, never IP-rotated">
+          <input type="checkbox" id="pin-{{.ID}}" {{if .Pinned}}checked{{end}} onchange="setPinned({{.ID}},this.checked)">📌
+        </label>
+      </div>
+    </td>
+    <td class="col-heartbeat">{{fmtTimePtr .LastHeartbeat}}</td>
+    <td class="col-added">{{fmtTime .SubmittedAt}}</td>
+    <td class="col-caps" style="white-space:nowrap;font-size:12px">
+      <a href="/admin/egress/{{.ID}}/caps" style="text-decoration:none">{{fmtCapabilities .Capabilities}}</a>
+    </td>
+    <td style="text-align:right;padding-right:.3rem">
+      <div style="position:relative;display:inline-block">
+        <button onclick="toggleNodeMenu({{.ID}},event)"
+                style="background:none;border:1px solid #666;border-radius:4px;color:#bbb;cursor:pointer;padding:0 7px;font-size:18px;line-height:1.5">⋮</button>
+        <div id="nm-{{.ID}}" style="display:none;position:fixed;z-index:300;background:#fff;border:1px solid #d1d5db;border-radius:6px;min-width:130px;box-shadow:0 4px 12px rgba(0,0,0,.15);text-align:left">
+          {{if eq .Status "suspended"}}
+            <a class="nm-item" onclick="nodeAction({{.ID}},'unsuspend')">Unsuspend</a>
+            <a class="nm-item nm-danger" onclick="nodeAction({{.ID}},'delete',{{stripPort .Addr|js}})">Delete…</a>
+          {{else}}
+            <a class="nm-item" onclick="nodeAction({{.ID}},'suspend')">Suspend</a>
+            {{if not .IsOnline}}<a class="nm-item nm-danger" onclick="nodeAction({{.ID}},'delete',{{stripPort .Addr|js}})">Delete…</a>{{end}}
+          {{end}}
+          {{if .SNIEditable}}<a class="nm-item" onclick="openSNIModal({{.ID}},{{stripPort .Addr|js}},{{.SNIList|js}});closeNodeMenus()">SNI list…</a>{{end}}
+        </div>
+      </div>
+    </td>
+  </tr>
+  {{end}}
+</table>
+</div>
+<script>
+function setRegion(id, region) {
+  fetch('/admin/api/nodes/' + id + '/region', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({region: region})
+  }).then(r => r.json()).then(d => {
+    if (!d.ok) alert('Error: ' + JSON.stringify(d));
+  }).catch(e => alert('Network error: ' + e));
+}
+
+function setPinned(id, pinned) {
+  fetch('/admin/api/nodes/' + id + '/pinned', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({pinned: pinned})
+  }).then(r => r.json()).then(d => {
+    if (!d.ok) alert('Error: ' + JSON.stringify(d));
+  }).catch(e => alert('Network error: ' + e));
+}
+
+function toggleNodeMenu(id, e) {
+  e.stopPropagation();
+  var m = document.getElementById('nm-' + id);
+  var wasOpen = m.style.display === 'block';
+  closeNodeMenus();
+  if (!wasOpen) {
+    var r = e.currentTarget.getBoundingClientRect();
+    m.style.display = 'block';
+    var mh = m.offsetHeight;
+    var top = (r.bottom + window.scrollY + 3 > document.documentElement.scrollHeight - 10 || r.bottom + mh + 6 > window.innerHeight)
+              ? r.top - mh - 3 : r.bottom + 3;
+    m.style.top  = top + 'px';
+    m.style.left = Math.max(4, r.right - m.offsetWidth) + 'px';
+  }
+}
+function closeNodeMenus() {
+  document.querySelectorAll('[id^="nm-"]').forEach(function(m){ m.style.display='none'; });
+}
+document.addEventListener('click', closeNodeMenus);
+function nodeAction(id, action, addr) {
+  if (action === 'delete' && !confirm('Delete node ' + (addr||id) + '?')) return;
+  closeNodeMenus();
+  fetch('/admin/nodes/' + id + '/' + action, {method:'POST'})
+    .then(function(){ location.reload(); })
+    .catch(function(e){ alert('Error: ' + e); });
+}
+
+var _sniNodeID = 0;
+function openSNIModal(id, addr, csvList) {
+  _sniNodeID = id;
+  document.getElementById('sni-modal-title').textContent = 'SNI list for ' + addr;
+  document.getElementById('sni-list-input').value = csvList ? csvList.split(',').map(s=>s.trim()).filter(Boolean).join('\n') : '';
+  document.getElementById('sni-modal').style.display = 'flex';
+  document.getElementById('sni-list-input').focus();
+}
+function closeSNIModal() {
+  document.getElementById('sni-modal').style.display = 'none';
+}
+function saveSNIList() {
+  var raw = document.getElementById('sni-list-input').value;
+  var snis = raw.split('\n').map(s=>s.trim()).filter(Boolean);
+  fetch('/admin/api/nodes/' + _sniNodeID + '/sni-list', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({snis: snis})
+  }).then(r => r.json()).then(d => {
+    if (d.ok) { closeSNIModal(); location.reload(); }
+    else { alert('Error: ' + JSON.stringify(d)); }
+  }).catch(e => alert('Network error: ' + e));
+}
+</script>
+<div id="sni-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:#1a1a2e;border:1px solid #7dddff44;border-radius:8px;padding:1.5rem;width:360px;max-width:90vw">
+    <div style="font-size:1rem;font-weight:600;color:#7dddff;margin-bottom:.8rem" id="sni-modal-title">SNI list</div>
+    <div style="font-size:12px;color:#aaa;margin-bottom:.4rem">One hostname per line. Leave empty to disable SNI rotation.</div>
+    <textarea id="sni-list-input" rows="6"
+      style="width:100%;box-sizing:border-box;font-family:monospace;font-size:13px;background:#111;color:#e0e0e0;border:1px solid #444;border-radius:4px;padding:.4rem;resize:vertical"></textarea>
+    <div style="display:flex;gap:.6rem;margin-top:1rem;justify-content:flex-end">
+      <button class="btn btn-warning" onclick="closeSNIModal()">Cancel</button>
+      <button class="btn btn-success" onclick="saveSNIList()">Save</button>
+    </div>
+  </div>
+</div>
+{{else}}
+<p class="text-muted">No nodes found.</p>
+{{end}}
+{{end}}
+
+{{define "rotation-table"}}
+<h3 style="margin-top:1.5rem">Address rotations — last 24h</h3>
+{{if .}}
+<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+<table style="min-width:480px">
+  <tr>
+    <th>Time</th>
+    <th>Old address</th>
+    <th>New address</th>
+  </tr>
+  {{range .}}
+  <tr>
+    <td style="white-space:nowrap">{{fmtTime (unixTime .Ts)}}</td>
+    <td style="font-family:monospace;font-size:13px">{{stripPort .OldAddr}}</td>
+    <td style="font-family:monospace;font-size:13px">{{stripPort .NewAddr}}</td>
+  </tr>
+  {{end}}
+</table>
+</div>
+{{else}}
+<p class="text-muted">No address rotations in the last 24 hours.</p>
+{{end}}
+{{end}}

@@ -1,0 +1,48 @@
+{{define "content"}}
+<h1>Exit Address Blacklist</h1>
+<p class="text-muted" style="margin-bottom:1.2rem">
+  Traffic to blacklisted addresses is silently dropped at exit nodes. Blocked attempts are logged
+  on the exit but do not appear in the admin dashboard as session failures.
+</p>
+
+<div class="card" style="max-width:560px">
+  <h2>Add entry</h2>
+  <form method="post" action="/admin/blacklist/add" class="mt2">
+    <div class="form-group">
+      <label>Address (IP or hostname)</label>
+      <input type="text" name="addr" placeholder="e.g. 203.0.113.17" required>
+    </div>
+    <div class="form-group">
+      <label>Reason (optional)</label>
+      <input type="text" name="reason" placeholder="e.g. zombie relay">
+    </div>
+    <button class="btn btn-primary">Add</button>
+  </form>
+</div>
+
+{{if .Data}}
+<table>
+  <thead>
+    <tr><th>ID</th><th>Address</th><th>Reason</th><th>Added</th><th></th></tr>
+  </thead>
+  <tbody>
+  {{range .Data}}
+    <tr>
+      <td>{{.ID}}</td>
+      <td><code>{{.Addr}}</code></td>
+      <td class="text-muted">{{.Reason}}</td>
+      <td class="text-muted">{{fmtTime .CreatedAt}}</td>
+      <td>
+        <form method="post" action="/admin/blacklist/delete" style="display:inline">
+          <input type="hidden" name="id" value="{{.ID}}">
+          <button class="btn btn-danger" onclick="return confirm('Remove from blacklist?')">Remove</button>
+        </form>
+      </td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+{{else}}
+<p class="text-muted mt2">No entries. All destination addresses are allowed.</p>
+{{end}}
+{{end}}

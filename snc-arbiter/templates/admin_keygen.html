@@ -1,0 +1,55 @@
+{{define "content"}}
+<h1>Generate client key</h1>
+
+<div class="card" style="max-width:520px">
+  <form method="post" action="/admin/key/generate-page" id="kgForm">
+    <div class="form-group">
+      <label>Username</label>
+      <input type="text" name="username" required placeholder="alice@example.com" autofocus
+             value="{{if .Data}}{{.Data.Username}}{{end}}">
+    </div>
+    <div class="form-group">
+      <label>Region <span class="text-muted">(optional — restricts controls to this region if ≥5 are available)</span></label>
+      <select name="region">
+        <option value="">— any —</option>
+        {{range .Data.Regions}}
+        <option value="{{.}}"{{if eq . $.Data.Region}} selected{{end}}>{{.}}</option>
+        {{end}}
+      </select>
+    </div>
+    <button class="btn btn-primary" type="submit">Generate key</button>
+  </form>
+</div>
+
+{{if .Data.Key}}
+<div class="card" style="margin-top:1.2rem;max-width:760px">
+  <h2 style="margin-top:0">Key for <strong>{{.Data.Username}}</strong></h2>
+
+  <div class="form-group">
+    <label>Client ID <span class="text-muted">(immutable, for billing)</span></label>
+    <input type="text" value="{{.Data.ClientID}}" readonly onclick="this.select()"
+           style="font-family:monospace;font-size:13px;background:#f8f9fa">
+  </div>
+
+  <div class="form-group">
+    <label>Key string <span class="text-muted">(paste into client app)</span></label>
+    <textarea rows="4" readonly onclick="this.select()"
+              style="font-family:monospace;font-size:12px;background:#f8f9fa;resize:vertical;width:100%;padding:.4rem .6rem;border:1px solid #ccc;border-radius:4px">{{.Data.Key}}</textarea>
+  </div>
+
+  <button class="btn btn-success" type="button" onclick="copyKey()">Copy key to clipboard</button>
+  <span id="copiedMsg" style="display:none;margin-left:.6rem;color:#198754;font-size:13px">Copied!</span>
+</div>
+
+<script>
+function copyKey() {
+  var ta = document.querySelector('textarea');
+  navigator.clipboard.writeText(ta.value).then(function() {
+    var msg = document.getElementById('copiedMsg');
+    msg.style.display = 'inline';
+    setTimeout(function(){ msg.style.display='none'; }, 2000);
+  });
+}
+</script>
+{{end}}
+{{end}}

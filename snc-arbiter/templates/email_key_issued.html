@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{if eq .Lang "ru"}}Ваш ключ Navlink{{else}}Your Navlink key{{end}}</title>
+</head>
+<body style="margin:0;padding:0;background:#000010;font-family:'Helvetica Neue',Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#000010;padding:48px 0">
+<tr><td align="center">
+<table width="580" cellpadding="0" cellspacing="0" style="background:#08080f;border:1px solid rgba(125,220,255,.14);border-radius:12px;overflow:hidden;max-width:580px">
+
+  <!-- Header -->
+  <tr><td style="padding:28px 40px 22px;text-align:center;border-bottom:1px solid rgba(125,220,255,.07)">
+    <span style="font-size:26px;font-weight:800;letter-spacing:-.02em;color:#7DDDFF">Navlink</span>
+  </td></tr>
+
+  <!-- Body -->
+  <tr><td style="padding:36px 40px 28px">
+
+    <h2 style="margin:0 0 10px;font-size:20px;font-weight:700;color:#e8ecf4;line-height:1.3">
+      {{if eq .Lang "ru"}}Доступ активирован{{else}}Network access activated{{end}}
+    </h2>
+    <p style="margin:0 0 28px;font-size:15px;line-height:1.75;color:rgba(232,236,244,.72)">
+      {{if eq .Lang "ru"}}
+        Привет, {{.Email}}!<br><br>
+        Ваш ключ бессрочный — он не истекает.<br>
+        Скопируйте ключ ниже и вставьте его в приложение Navlink.
+      {{else}}
+        Hi {{.Email}},<br><br>
+        Your key is perpetual — it never expires.<br>
+        Copy the key below and paste it into the Navlink client.
+      {{end}}
+    </p>
+
+    <!-- Key box -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 28px">
+      <tr><td style="background:#000020;border:1px solid rgba(125,220,255,.18);border-radius:8px;padding:18px 22px;word-break:break-all">
+        <p style="margin:0 0 8px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:rgba(125,220,255,.45)">
+          {{if eq .Lang "ru"}}Ключ доступа{{else}}Access key{{end}}
+        </p>
+        <code style="font-family:'Courier New',Courier,monospace;font-size:12.5px;line-height:1.7;color:#7dd3fc">{{.Key}}</code>
+      </td></tr>
+    </table>
+
+    <!-- Activate / download CTA -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px">
+      <tr><td style="text-align:center;padding:20px 22px;background:rgba(125,220,255,.04);border:1px solid rgba(125,220,255,.08);border-radius:8px">
+        <p style="margin:0 0 14px;font-size:13px;color:rgba(232,236,244,.5)">
+          {{if eq .Lang "ru"}}Нажмите кнопку — приложение откроется с уже введённым ключом{{else}}Tap the button — the app will open with your key pre-filled{{end}}
+        </p>
+        <a href="navlink://activate?key={{.Key}}" style="display:inline-block;padding:11px 28px;background:linear-gradient(135deg,#1a6b8a,#0d4b66);color:#7DDDFF;font-size:14px;font-weight:700;text-decoration:none;border-radius:7px;border:1px solid rgba(125,220,255,.3);letter-spacing:.02em">
+          {{if eq .Lang "ru"}}Активировать{{else}}Activate now{{end}}
+        </a>
+        <p style="margin:10px 0 0;font-size:12px;color:rgba(232,236,244,.28)">
+          {{if eq .Lang "ru"}}Если приложение не установлено, скачайте его на{{else}}If the app isn't installed, download it at{{end}}
+          <a href="https://navlink.net/download" style="color:rgba(125,220,255,.45);text-decoration:none">navlink.net/download</a>
+        </p>
+      </td></tr>
+    </table>
+
+    {{if .QRCodeBase64}}
+    <!-- QR code for mobile activation -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px">
+      <tr><td style="text-align:center;padding:20px 22px;background:rgba(125,220,255,.04);border:1px solid rgba(125,220,255,.08);border-radius:8px">
+        <p style="margin:0 0 12px;font-size:12px;color:rgba(232,236,244,.45)">
+          {{if eq .Lang "ru"}}Или отсканируйте QR-код камерой телефона{{else}}Or scan this QR code with your phone camera{{end}}
+        </p>
+        <img src="data:image/png;base64,{{.QRCodeBase64}}" width="180" height="180" style="display:block;margin:0 auto;border:6px solid #ffffff;border-radius:6px" alt="QR">
+        <p style="margin:10px 0 0;font-size:11px;color:rgba(232,236,244,.28)">
+          {{if eq .Lang "ru"}}Открывает приложение напрямую{{else}}Opens the app directly{{end}}
+        </p>
+      </td></tr>
+    </table>
+    {{end}}
+
+    <!-- Proxifier setup for iOS / macOS -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px">
+      <tr><td style="background:rgba(125,220,255,.04);border:1px solid rgba(125,220,255,.08);border-radius:8px;padding:18px 22px">
+
+        <p style="margin:0 0 12px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:rgba(125,220,255,.4)">
+          {{if eq .Lang "ru"}}iOS и macOS — подключение через Proxifier{{else}}iOS &amp; macOS — connect via Proxifier{{end}}
+        </p>
+
+        <!-- Server list -->
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 14px">
+          <tr>
+            <td style="font-size:12px;color:rgba(232,236,244,.38);text-transform:uppercase;letter-spacing:.06em;padding-bottom:6px">
+              {{if eq .Lang "ru"}}Серверы (любой на выбор){{else}}Servers (pick any one){{end}}
+            </td>
+          </tr>
+          <tr>
+            <td style="font-family:'Courier New',Courier,monospace;font-size:12.5px;line-height:2;color:#7dd3fc">
+              bb0.navlink.net : 8080<br>
+              bb1.navlink.net : 8080<br>
+              bb2.navlink.net : 8080<br>
+              bb3.navlink.net : 8080<br>
+              bb4.navlink.net : 8080
+            </td>
+          </tr>
+        </table>
+
+        <!-- Credentials hint -->
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px">
+          <tr>
+            <td style="background:rgba(0,0,16,.4);border-radius:6px;padding:10px 14px;font-size:12px;line-height:1.75;color:rgba(232,236,244,.5)">
+              {{if eq .Lang "ru"}}
+                <b style="color:rgba(232,236,244,.75)">Логин:</b> {{.Email}}<br>
+                <b style="color:rgba(232,236,244,.75)">Пароль:</b>
+                {{if eq .Lang "ru"}}ваш пароль от личного кабинета{{else}}your Navlink account password{{end}}
+              {{else}}
+                <b style="color:rgba(232,236,244,.75)">Username:</b> {{.Email}}<br>
+                <b style="color:rgba(232,236,244,.75)">Password:</b> your Navlink account password
+              {{end}}
+            </td>
+          </tr>
+        </table>
+
+        <!-- Two-column steps -->
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <!-- macOS -->
+            <td width="48%" style="vertical-align:top;padding-right:8px">
+              <p style="margin:0 0 6px;font-size:12px;font-weight:700;color:rgba(232,236,244,.75)">macOS — Proxifier</p>
+              <ol style="margin:0;padding-left:16px;font-size:12px;line-height:1.9;color:rgba(232,236,244,.48)">
+                <li>{{if eq .Lang "ru"}}Скачайте Proxifier на proxifier.com{{else}}Download Proxifier at proxifier.com{{end}}</li>
+                <li>Profile → Proxy Servers → Add</li>
+                <li>{{if eq .Lang "ru"}}Тип: SOCKS 5, порт 8080, включите авторизацию{{else}}Type: SOCKS 5, port 8080, enable auth{{end}}</li>
+                <li>{{if eq .Lang "ru"}}Profile → Proxification Rules → Default → Proxy{{else}}Profile → Proxification Rules → Default → Proxy{{end}}</li>
+              </ol>
+            </td>
+            <td width="4%"></td>
+            <!-- iOS -->
+            <td width="48%" style="vertical-align:top;padding-left:8px">
+              <p style="margin:0 0 6px;font-size:12px;font-weight:700;color:rgba(232,236,244,.75)">iOS — Proxifier</p>
+              <ol style="margin:0;padding-left:16px;font-size:12px;line-height:1.9;color:rgba(232,236,244,.48)">
+                <li>{{if eq .Lang "ru"}}Скачайте Proxifier из App Store{{else}}Download Proxifier from the App Store{{end}}</li>
+                <li>{{if eq .Lang "ru"}}Добавьте прокси: SOCKS5, порт 8080{{else}}Add proxy: SOCKS5, port 8080{{end}}</li>
+                <li>{{if eq .Lang "ru"}}Включите авторизацию, введите логин и пароль{{else}}Enable auth, enter username and password{{end}}</li>
+                <li>{{if eq .Lang "ru"}}Нажмите Connect{{else}}Tap Connect{{end}}</li>
+              </ol>
+            </td>
+          </tr>
+        </table>
+
+      </td></tr>
+    </table>
+
+    <p style="margin:0;font-size:13px;line-height:1.6;color:rgba(232,236,244,.35)">
+      {{if eq .Lang "ru"}}
+        Храните ключ в тайне. Если вы его потеряете, перейдите в личный кабинет — там можно выпустить новый.
+      {{else}}
+        Keep this key private. If you lose it, sign in to your account — you can generate a new one there.
+      {{end}}
+    </p>
+
+  </td></tr>
+
+  <!-- Footer -->
+  <tr><td style="padding:14px 40px;text-align:center;border-top:1px solid rgba(125,220,255,.07)">
+    <p style="margin:0;font-size:12px;color:rgba(232,236,244,.22)">
+      &copy; AI Partners Solutions, 2026 &middot;
+      <a href="https://navlink.net" style="color:rgba(125,220,255,.45);text-decoration:none">navlink.net</a>
+    </p>
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>

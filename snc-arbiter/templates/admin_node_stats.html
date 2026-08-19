@@ -1,0 +1,200 @@
+{{define "content"}}
+<div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.4rem;flex-wrap:wrap">
+  <a href="/admin?tab={{if eq .Data.Node.Type "exit"}}egresses{{else}}controls{{end}}" class="btn">← Back</a>
+  <h1 style="margin:0;font-size:1.3rem">Stats: <code style="font-size:1rem">{{stripPort .Data.Node.Addr}}</code></h1>
+  {{if or .Data.Node.Location .Data.Node.Provider}}
+    <span class="text-muted" style="font-size:13px">
+      {{if .Data.Node.Location}}{{.Data.Node.Location}}{{end}}{{if and .Data.Node.Location .Data.Node.Provider}} · {{end}}{{if .Data.Node.Provider}}({{.Data.Node.Provider}}){{end}}
+    </span>
+  {{end}}
+</div>
+
+<div class="card" style="display:flex;gap:2rem;flex-wrap:wrap;align-items:center">
+  <div>
+    <div class="text-muted">Total data transferred</div>
+    <div id="totalBytes" style="font-size:1.4rem;font-weight:700">—</div>
+  </div>
+  <div style="margin-left:auto;display:flex;gap:.4rem" id="rangeToggle">
+    <button class="btn" data-range="24h">24h</button>
+    <button class="btn" data-range="7d">7d</button>
+    <button class="btn" data-range="30d">30d</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">BananaMeter probe (relative)</h2>
+  <canvas id="chartBanana" height="80"></canvas>
+</div>
+{{if eq .Data.Node.Type "control"}}
+<div class="card" style="overflow-x:auto">
+  <h2 style="margin-top:0">Per-exit breakdown (selected range)</h2>
+  <table style="min-width:420px">
+    <thead><tr><th>Exit</th><th>Avg Mbps</th><th>Avg ping (ms)</th><th>Samples</th></tr></thead>
+    <tbody id="bananaPeersTable"><tr><td colspan="4" class="text-muted">Loading…</td></tr></tbody>
+  </table>
+</div>
+{{end}}
+<div class="card"><h2 style="margin-top:0">RTT (ms)</h2><canvas id="chartRTT" height="80"></canvas></div>
+{{if eq .Data.Node.Type "control"}}
+<div class="card"><h2 style="margin-top:0">Routing RTT (ms) — what exit-selection actually uses</h2><canvas id="chartRoutingRTT" height="80"></canvas></div>
+{{end}}
+<div class="card"><h2 style="margin-top:0">Throughput (Mbps)</h2><canvas id="chartBW" height="80"></canvas></div>
+<div class="card"><h2 style="margin-top:0">Data transferred per 10-min bucket</h2><canvas id="chartBytes" height="80"></canvas></div>
+<div class="card"><h2 style="margin-top:0">CPU load (%)</h2><canvas id="chartCPU" height="80"></canvas></div>
+<div class="card"><h2 style="margin-top:0">Memory usage (%)</h2><canvas id="chartMem" height="80"></canvas></div>
+<div class="card"><h2 style="margin-top:0">Disk usage (%)</h2><canvas id="chartDisk" height="80"></canvas></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+  var nodeID = {{.Data.Node.ID}};
+  var buttons = document.querySelectorAll('#rangeToggle button');
+  var charts = {};
+  var curRange = '24h';
+
+  function fmtBytes(n){
+    var units=['B','KB','MB','GB','TB'], i=0;
+    while(n>=1024 && i<units.length-1){n/=1024;i++;}
+    return n.toFixed(1)+' '+units[i];
+  }
+
+  function makeChart(canvasId, label){
+    var ctx = document.getElementById(canvasId).getContext('2d');
+    return new Chart(ctx, {
+      type: 'line',
+      data: { labels: [], datasets: [{ label: label, data: [], borderColor: '#0d6efd', backgroundColor: 'rgba(13,110,253,.1)', pointRadius: 0, tension: .2 }] },
+      options: {
+        animation: false,
+        scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { beginAtZero: true } },
+        plugins: { legend: { display: false } }
+      }
+    });
+  }
+
+  // Dual-axis: Mbps (left) + ping ms (right) -- same idea as the node's
+  // other charts, but for the BananaMeter tunnel-diagnostics probe (see
+  // TODO.md "BananaMeter-based tunnel diagnostics").
+  charts.banana = new Chart(document.getElementById('chartBanana').getContext('2d'), {
+    type: 'line',
+    data: { labels: [], datasets: [
+      { label: 'Throughput (relative)', data: [], borderColor: '#0d6efd', backgroundColor: 'rgba(13,110,253,.1)', pointRadius: 0, tension: .2, yAxisID: 'y' },
+      { label: 'Ping (relative)', data: [], borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,.1)', pointRadius: 0, tension: .2, yAxisID: 'y1', borderDash: [4,3] }
+    ]},
+    options: {
+      animation: false,
+      scales: {
+        x:  { ticks: { maxTicksLimit: 8 } },
+        y:  { beginAtZero: true, position: 'left', title: { display: true, text: 'Throughput (relative)' } },
+        y1: { beginAtZero: true, position: 'right', title: { display: true, text: 'Ping (relative)' }, grid: { drawOnChartArea: false } }
+      },
+      // position: 'bottom' so the legend reads as a caption under the graph,
+      // not as part of the card header above the canvas.
+      plugins: { legend: { display: true, position: 'bottom' } }
+    }
+  });
+
+  function loadBanana(range){
+    fetch('/admin/api/nodes/' + nodeID + '/bananameter?range=' + encodeURIComponent(range))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        var buckets = data.buckets || [];
+        var labels = buckets.map(function(b){ return fmtTs(b.ts); });
+        charts.banana.data.labels = labels;
+        charts.banana.data.datasets[0].data = buckets.map(function(b){ return b.avg_mbps; });
+        charts.banana.data.datasets[1].data = buckets.map(function(b){ return b.avg_ping_ms; });
+        charts.banana.update();
+
+        var tbody = document.getElementById('bananaPeersTable');
+        if (tbody) {
+          var peers = data.peers || [];
+          if (peers.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-muted">No data in range</td></tr>';
+          } else {
+            tbody.innerHTML = peers.map(function(p){
+              return '<tr><td style="font-family:monospace">' + p.peer_addr + '</td>' +
+                '<td>' + p.avg_mbps.toFixed(1) + '</td>' +
+                '<td>' + p.avg_ping_ms.toFixed(0) + '</td>' +
+                '<td>' + p.samples + '</td></tr>';
+            }).join('');
+          }
+        }
+      });
+  }
+
+  charts.rtt   = makeChart('chartRTT', 'RTT (ms)');
+  {{if eq .Data.Node.Type "control"}}
+  charts.routingRtt = makeChart('chartRoutingRTT', 'Routing RTT (ms)');
+  charts.routingRtt.data.datasets[0].borderColor = '#f97316';
+  charts.routingRtt.data.datasets[0].backgroundColor = 'rgba(249,115,22,.1)';
+  {{end}}
+  charts.bw    = makeChart('chartBW', 'Mbps');
+  charts.bytes = makeChart('chartBytes', 'Bytes');
+  charts.cpu   = makeChart('chartCPU', 'CPU %');
+  charts.mem   = makeChart('chartMem', 'Mem %');
+  charts.disk  = makeChart('chartDisk', 'Disk %');
+
+  function fmtTs(ts){
+    var d = new Date(ts*1000);
+    return d.toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+  }
+
+  function load(range){
+    fetch('/admin/api/nodes/' + nodeID + '/stats?range=' + encodeURIComponent(range))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        var buckets = data.buckets || [];
+        var labels = buckets.map(function(b){ return fmtTs(b.ts); });
+
+        document.getElementById('totalBytes').textContent = fmtBytes(data.total_bytes || 0);
+
+        charts.rtt.data.labels = labels;
+        charts.rtt.data.datasets[0].data = buckets.map(function(b){ return b.rtt_ms; });
+        charts.rtt.update();
+
+        if (charts.routingRtt) {
+          charts.routingRtt.data.labels = labels;
+          charts.routingRtt.data.datasets[0].data = buckets.map(function(b){ return b.routing_rtt_ms; });
+          charts.routingRtt.update();
+        }
+
+        charts.bw.data.labels = labels;
+        charts.bw.data.datasets[0].data = buckets.map(function(b){ return b.bw_mbps; });
+        charts.bw.update();
+
+        charts.bytes.data.labels = labels;
+        charts.bytes.data.datasets[0].data = buckets.map(function(b){ return b.bytes_transferred; });
+        charts.bytes.update();
+
+        charts.cpu.data.labels = labels;
+        charts.cpu.data.datasets[0].data = buckets.map(function(b){ return b.cpu_pct; });
+        charts.cpu.data.datasets[0].borderColor = '#198754';
+        charts.cpu.update();
+
+        charts.mem.data.labels = labels;
+        charts.mem.data.datasets[0].data = buckets.map(function(b){ return b.mem_pct; });
+        charts.mem.data.datasets[0].borderColor = '#ffc107';
+        charts.mem.update();
+
+        charts.disk.data.labels = labels;
+        charts.disk.data.datasets[0].data = buckets.map(function(b){ return b.disk_pct; });
+        charts.disk.data.datasets[0].borderColor = '#dc3545';
+        charts.disk.update();
+      });
+  }
+
+  buttons.forEach(function(btn){
+    btn.onclick = function(){
+      buttons.forEach(function(b){ b.classList.remove('btn-primary'); });
+      btn.classList.add('btn-primary');
+      curRange = btn.dataset.range;
+      load(curRange);
+      loadBanana(curRange);
+    };
+  });
+  buttons[0].classList.add('btn-primary');
+  load(curRange);
+  loadBanana(curRange);
+  setInterval(function(){ load(curRange); loadBanana(curRange); }, 10000);
+})();
+</script>
+{{end}}

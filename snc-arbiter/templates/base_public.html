@@ -1,0 +1,337 @@
+{{define "base_public"}}<!DOCTYPE html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NavLink</title>
+<link rel="icon" type="image/png" href="/static/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:#000;color:#e8ecf4}
+a{text-decoration:none;color:inherit}
+
+/* ── Header ─────────────────────────────────────────────────── */
+.site-header{
+  position:absolute;top:0;left:0;right:0;z-index:100;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 3rem;
+  height:88px;
+  background:rgba(0,0,8,.72);
+  backdrop-filter:blur(12px);
+  -webkit-backdrop-filter:blur(12px);
+  border-bottom:1px solid rgba(125,220,255,.08);
+}
+.header-logo{display:flex;align-items:center;gap:.75rem}
+.header-logo img{height:96px;width:auto}
+.header-right{display:flex;align-items:center;gap:1.5rem}
+
+/* Header nav links */
+.header-nav{display:flex;align-items:center;gap:1.5rem;margin-right:.5rem}
+.header-nav a{font-size:14px;font-weight:500;color:rgba(232,236,244,.5);letter-spacing:.02em;transition:color .15s}
+.header-nav a:hover{color:#e8ecf4}
+@media(max-width:640px){.header-nav{display:none}}
+
+/* Mobile menu button + dropdown */
+.mobile-menu-btn{
+  display:none;
+  background:none;border:none;cursor:pointer;
+  color:rgba(232,236,244,.7);
+  padding:.4rem;margin-right:-.25rem;
+}
+.mobile-menu-btn:hover{color:#e8ecf4}
+@media(max-width:640px){.mobile-menu-btn{display:flex;align-items:center}}
+
+.mobile-nav{
+  display:none;
+  position:absolute;top:72px;left:0;right:0;z-index:99;
+  flex-direction:column;
+  background:rgba(0,0,8,.96);
+  backdrop-filter:blur(12px);
+  -webkit-backdrop-filter:blur(12px);
+  border-bottom:1px solid rgba(125,220,255,.08);
+  padding:.5rem 1.25rem 1.1rem;
+}
+@media(max-width:640px){.mobile-nav.open{display:flex}}
+.mobile-nav a{
+  padding:.85rem 0;
+  font-size:15px;font-weight:500;
+  color:rgba(232,236,244,.75);
+  border-bottom:1px solid rgba(125,220,255,.07);
+}
+.mobile-nav a:last-child{border-bottom:none}
+.mobile-nav a.btn-connect{
+  display:inline-block;
+  margin:.6rem 0 .3rem;text-align:center;
+  border-bottom:none;
+}
+.mobile-nav-footer{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-top:.5rem;padding-top:.85rem;
+  border-top:1px solid rgba(125,220,255,.07);
+}
+
+/* tg-link and lang-switch live in the header on desktop, but move into .mobile-nav-footer
+   on mobile (see media query below) since the header row has no room for them once the
+   hamburger button is present — they'd otherwise push it off the right edge of the screen. */
+@media(max-width:640px){
+  .header-right > .tg-link,
+  .header-right > .lang-switch{display:none}
+}
+
+/* Language switcher */
+.lang-switch{display:flex;align-items:center;gap:2px;font-size:13px;font-weight:500}
+.lang-switch a{
+  color:rgba(255,255,255,.4);
+  padding:3px 7px;border-radius:4px;
+  transition:color .15s,background .15s;
+  letter-spacing:.04em;
+}
+.lang-switch a:hover{color:rgba(125,220,255,.8)}
+.lang-switch a.active{color:#7DDDFF;background:rgba(125,220,255,.08)}
+.lang-switch span{color:rgba(255,255,255,.15);padding:0 2px}
+
+/* Connect Now button */
+.btn-connect{
+  font-size:13.5px;font-weight:700;
+  color:#fff;letter-spacing:.03em;
+  padding:.42rem 1.2rem;border-radius:6px;
+  background:linear-gradient(110deg,#4FC3F7,#7C4DFF);
+  box-shadow:0 0 14px rgba(79,195,247,.35);
+  transition:box-shadow .2s,transform .15s;
+  white-space:nowrap;
+}
+.btn-connect:hover{
+  box-shadow:0 0 28px rgba(79,195,247,.65),0 0 8px rgba(124,77,255,.5);
+  transform:translateY(-1px);
+  color:#fff;
+}
+@keyframes connectPulse{
+  0%,100%{box-shadow:0 0 14px rgba(79,195,247,.35)}
+  50%{box-shadow:0 0 22px rgba(79,195,247,.65),0 0 8px rgba(124,77,255,.45)}
+}
+.btn-connect{animation:connectPulse 2.4s ease-in-out infinite}
+
+/* Telegram icon in header */
+.tg-link{
+  display:flex;align-items:center;
+  color:rgba(125,220,255,.45);
+  transition:color .18s;
+}
+.tg-link:hover{color:#7DDDFF}
+
+/* Login button */
+.btn-login{
+  font-size:14px;font-weight:500;
+  color:#7DDDFF;
+  border:1px solid rgba(125,220,255,.35);
+  padding:.45rem 1.4rem;border-radius:5px;
+  background:rgba(125,220,255,.04);
+  backdrop-filter:blur(6px);
+  transition:all .2s;
+  letter-spacing:.02em;
+}
+.btn-login:hover{
+  background:rgba(125,220,255,.1);
+  border-color:rgba(125,220,255,.6);
+  box-shadow:0 0 16px rgba(125,220,255,.2);
+}
+
+/* ── Footer ─────────────────────────────────────────────────── */
+.site-footer{
+  background:#000;
+  padding:1.1rem 3rem;
+  text-align:center;
+  font-size:13px;font-weight:500;
+  color:rgba(125,220,255,.45);
+  border-top:1px solid rgba(125,220,255,.1);
+  letter-spacing:.05em;
+  text-transform:uppercase;
+}
+
+/* ── Auth forms ──────────────────────────────────────────────── */
+.auth-wrap{
+  min-height:100vh;
+  display:flex;align-items:center;justify-content:center;
+  padding:120px 1.25rem 3rem;
+  background:#000;
+}
+.auth-card{
+  width:100%;max-width:420px;
+  background:rgba(8,8,18,.9);
+  border:1px solid rgba(125,220,255,.13);
+  border-radius:12px;
+  padding:2.5rem 2.25rem 2rem;
+  backdrop-filter:blur(16px);
+}
+.auth-card h1{
+  font-size:1.4rem;font-weight:700;
+  color:#e8ecf4;
+  margin-bottom:1.75rem;
+  letter-spacing:-.01em;
+}
+.auth-field{margin-bottom:1.1rem}
+.auth-field label{
+  display:block;
+  font-size:12px;font-weight:600;
+  letter-spacing:.06em;text-transform:uppercase;
+  color:rgba(232,236,244,.45);
+  margin-bottom:.4rem;
+}
+.auth-field input{
+  width:100%;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(125,220,255,.18);
+  border-radius:6px;
+  padding:.65rem .9rem;
+  font-size:15px;font-family:inherit;
+  color:#e8ecf4;
+  outline:none;
+  transition:border-color .15s,box-shadow .15s;
+}
+.auth-field input:focus{
+  border-color:rgba(125,220,255,.5);
+  box-shadow:0 0 0 3px rgba(125,220,255,.08);
+}
+.auth-field input::placeholder{color:rgba(232,236,244,.2)}
+.btn-auth{
+  width:100%;
+  padding:.75rem;
+  border:none;border-radius:6px;
+  font-size:15px;font-weight:600;font-family:inherit;
+  letter-spacing:.02em;
+  cursor:pointer;
+  background:linear-gradient(120deg,#4FC3F7,#7C4DFF);
+  color:#fff;
+  box-shadow:0 0 20px rgba(79,195,247,.25);
+  transition:box-shadow .2s,transform .15s;
+  margin-top:.4rem;
+}
+.btn-auth:hover{
+  box-shadow:0 0 32px rgba(79,195,247,.45);
+  transform:translateY(-1px);
+}
+.auth-alert{
+  padding:.7rem .9rem;
+  border-radius:6px;
+  font-size:13.5px;
+  margin-bottom:1.2rem;
+  line-height:1.5;
+}
+.auth-alert-error{
+  background:rgba(220,53,69,.12);
+  border:1px solid rgba(220,53,69,.3);
+  color:rgba(255,160,170,.9);
+}
+.auth-alert-success{
+  background:rgba(79,195,247,.08);
+  border:1px solid rgba(79,195,247,.25);
+  color:rgba(125,220,255,.9);
+}
+.auth-links{
+  margin-top:1.4rem;
+  font-size:13px;
+  color:rgba(232,236,244,.4);
+  line-height:1.9;
+}
+.auth-links a{color:rgba(125,220,255,.7)}
+.auth-links a:hover{color:#7DDDFF}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media(max-width:640px){
+  .site-header{padding:0 1.25rem;height:72px}
+  .header-logo img{height:52px}
+  .site-footer{padding:1rem 1.25rem}
+  .auth-card{padding:2rem 1.25rem 1.5rem}
+}
+</style>
+</head>
+<body>
+<header class="site-header">
+  <div class="header-logo">
+    <a href="/"><img src="/static/logo.png" alt="NavLink"></a>
+  </div>
+  <div class="header-right">
+    <nav class="header-nav">
+      <a href="/get-key" class="btn-connect">{{if eq .Lang "ru"}}Подключиться!{{else}}Connect Now!{{end}}</a>
+      <a href="/technology">The Tunnel Cat</a>
+      <a href="/ratatosk">Ratatosk</a>
+      <a href="/blackbadger">BlackBadger</a>
+      <a href="/partners">{{if eq .Lang "ru"}}Партнёрские приложения{{else}}Partner Apps{{end}}</a>
+      <a href="/download">{{if eq .Lang "ru"}}Скачать{{else}}Download{{end}}</a>
+    </nav>
+    <a href="https://t.me/xopekspace" target="_blank" rel="noopener noreferrer" class="tg-link" title="{{if eq .Lang "ru"}}Поддержка в Telegram{{else}}Telegram support{{end}}">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+        <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+      </svg>
+    </a>
+    <div class="lang-switch">
+      <a href="{{if .Path}}{{.Path}}{{else}}/{{end}}?lang=en"{{if eq .Lang "en"}} class="active"{{end}}>EN</a>
+      <span>|</span>
+      <a href="{{if .Path}}{{.Path}}{{else}}/{{end}}?lang=ru"{{if eq .Lang "ru"}} class="active"{{end}}>RU</a>
+    </div>
+    {{if .User}}
+    <a href="/my" class="btn-login">
+      {{if eq .Lang "ru"}}Мой аккаунт{{else}}My account{{end}}
+    </a>
+    {{else}}
+    <a href="/login" class="btn-login">
+      {{if eq .Lang "ru"}}Войти{{else}}Login{{end}}
+    </a>
+    {{end}}
+    <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Menu" aria-expanded="false">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <line x1="3" y1="6" x2="21" y2="6"></line>
+        <line x1="3" y1="12" x2="21" y2="12"></line>
+        <line x1="3" y1="18" x2="21" y2="18"></line>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<nav class="mobile-nav" id="mobileNav">
+  <a href="/get-key" class="btn-connect">{{if eq .Lang "ru"}}Подключиться!{{else}}Connect Now!{{end}}</a>
+  <a href="/technology">The Tunnel Cat</a>
+  <a href="/ratatosk">Ratatosk</a>
+  <a href="/blackbadger">BlackBadger</a>
+  <a href="/partners">{{if eq .Lang "ru"}}Партнёрские приложения{{else}}Partner Apps{{end}}</a>
+  <a href="/download">{{if eq .Lang "ru"}}Скачать{{else}}Download{{end}}</a>
+  <div class="mobile-nav-footer">
+    <a href="https://t.me/xopekspace" target="_blank" rel="noopener noreferrer" class="tg-link" title="{{if eq .Lang "ru"}}Поддержка в Telegram{{else}}Telegram support{{end}}">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+        <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+      </svg>
+    </a>
+    <div class="lang-switch">
+      <a href="{{if .Path}}{{.Path}}{{else}}/{{end}}?lang=en"{{if eq .Lang "en"}} class="active"{{end}}>EN</a>
+      <span>|</span>
+      <a href="{{if .Path}}{{.Path}}{{else}}/{{end}}?lang=ru"{{if eq .Lang "ru"}} class="active"{{end}}>RU</a>
+    </div>
+  </div>
+</nav>
+<script>
+(function(){
+  var btn = document.getElementById('mobileMenuBtn');
+  var nav = document.getElementById('mobileNav');
+  btn.addEventListener('click', function(){
+    var open = nav.classList.toggle('open');
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  nav.addEventListener('click', function(e){
+    if (e.target.tagName === 'A') {
+      nav.classList.remove('open');
+      btn.setAttribute('aria-expanded', 'false');
+    }
+  });
+})();
+</script>
+
+{{template "content" .}}
+
+<footer class="site-footer">
+  &copy; AI Partners Solutions, 2026
+</footer>
+</body>
+</html>{{end}}
