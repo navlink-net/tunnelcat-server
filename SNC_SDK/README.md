@@ -12,6 +12,10 @@ adapters (Python, Kotlin, C#, Swift) that spawn a small local daemon and
 drive it over JSON-RPC, plus a mock control/exit server so you can develop
 and test without any real credentials or network access.
 
+**Full hypertext documentation:** [tunnelcat.navlink.net/docs/sdk](https://tunnelcat.navlink.net/docs/sdk/index.html)
+— architecture, the IPC and wire protocol contracts, and a complete API reference for every language adapter.
+Also published standalone as [navlink-net/tunnelcat-sdk](https://github.com/navlink-net/tunnelcat-sdk).
+
 ## Try it in 30 seconds
 
 ```sh

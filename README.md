@@ -17,7 +17,10 @@ This repository contains:
 - **`android-core/`**, **`anet-stub/`**, **`binlog/`**, **`dht/`**,
   **`SNC_SDK/`** — supporting libraries. `SNC_SDK` in particular is a
   documented, independently licensed SDK for talking to `snc-control` from
-  third-party code.
+  third-party code — also published standalone as
+  [`navlink-net/tunnelcat-sdk`](https://github.com/navlink-net/tunnelcat-sdk),
+  with full hypertext docs at
+  [tunnelcat.navlink.net/docs/sdk](https://tunnelcat.navlink.net/docs/sdk/index.html).
 - **`tools/decode_snc_log.py`** — decodes the binary log format emitted by
   clients (see `binlog/`) back to plain text.
 
