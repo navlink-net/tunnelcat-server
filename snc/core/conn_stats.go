@@ -25,13 +25,22 @@ import (
 // One collector is shared for the lifetime of the client process (create
 // once at startup, alongside the Router/DialerPool it snapshots from).
 type ConnStatsCollector struct {
-	connectsManual    int32
-	connectsAuto      int32
-	disconnectsManual int32
-	disconnectsAuto   int32
+	connectsManual        int32
+	connectsAuto          int32
+	disconnectsManual     int32
+	disconnectsAuto       int32
+	wildcatSessionsOK     int32
+	wildcatSessionsFailed int32
+	wildcatSecondsTotal   int64 // sum of ended sessions' durations, OK + failed
 
 	mu           sync.Mutex
 	sessionStart time.Time // zero = not currently connected
+
+	// wildcatStartUnix is the active WildCat session's start time (unix
+	// seconds), 0 = none active. A plain atomic instead of a mutex-protected
+	// time.Time specifically so save() (called from within Start/End) can
+	// read it without any lock-ordering/reentrancy concern.
+	wildcatStartUnix atomic.Int64
 
 	statePath string // "" disables persistence
 }
@@ -44,10 +53,22 @@ type ConnStatsCollector struct {
 // SecondsOnline) aren't persisted -- Snapshot reads those fresh from live
 // state every time, nothing to lose there.
 type connStatsPersisted struct {
-	ConnectsManual    int32 `json:"connects_manual"`
-	ConnectsAuto      int32 `json:"connects_auto"`
-	DisconnectsManual int32 `json:"disconnects_manual"`
-	DisconnectsAuto   int32 `json:"disconnects_auto"`
+	ConnectsManual        int32 `json:"connects_manual"`
+	ConnectsAuto          int32 `json:"connects_auto"`
+	DisconnectsManual     int32 `json:"disconnects_manual"`
+	DisconnectsAuto       int32 `json:"disconnects_auto"`
+	WildcatSessionsOK     int32 `json:"wildcat_sessions_ok"`
+	WildcatSessionsFailed int32 `json:"wildcat_sessions_failed"`
+	WildcatSecondsTotal   int64 `json:"wildcat_seconds_total"`
+	// WildcatStartUnix persists an in-progress WildCat session's start time
+	// (0 = none in progress) -- Android in particular restarts its snc-core
+	// process frequently (background/foreground service churn, network
+	// changes) mid-session, often without ever reaching EndWildcatSession.
+	// Without this, that session's very existence would be lost, not just
+	// misclassified. Resolved as failed (an interrupted session, by
+	// definition never confirmed to have worked) as soon as the next process
+	// instance loads it -- see NewConnStatsCollector.
+	WildcatStartUnix int64 `json:"wildcat_start_unix"`
 }
 
 // NewConnStatsCollector creates a collector, restoring any pending
@@ -74,6 +95,20 @@ func NewConnStatsCollector(statePath string) *ConnStatsCollector {
 	c.connectsAuto = p.ConnectsAuto
 	c.disconnectsManual = p.DisconnectsManual
 	c.disconnectsAuto = p.DisconnectsAuto
+	c.wildcatSessionsOK = p.WildcatSessionsOK
+	c.wildcatSessionsFailed = p.WildcatSessionsFailed
+	c.wildcatSecondsTotal = p.WildcatSecondsTotal
+	if p.WildcatStartUnix != 0 {
+		// A previous process instance's WildCat session never got closed
+		// out -- the process died (crash, OS kill, force quit) before
+		// EndWildcatSession ran. Resolve it as failed now rather than lose
+		// it silently: an interrupted session was, by definition, never
+		// confirmed to have worked. Duration is not attributed to
+		// wildcatSecondsTotal since the gap may span sleep/suspend and
+		// wouldn't be a meaningful session length.
+		c.wildcatSessionsFailed++
+		Log.Printf("conn-stats: found orphaned WildCat session from a previous process instance, counting as failed")
+	}
 	return c
 }
 
@@ -88,10 +123,14 @@ func (c *ConnStatsCollector) save() {
 		return
 	}
 	p := connStatsPersisted{
-		ConnectsManual:    atomic.LoadInt32(&c.connectsManual),
-		ConnectsAuto:      atomic.LoadInt32(&c.connectsAuto),
-		DisconnectsManual: atomic.LoadInt32(&c.disconnectsManual),
-		DisconnectsAuto:   atomic.LoadInt32(&c.disconnectsAuto),
+		ConnectsManual:        atomic.LoadInt32(&c.connectsManual),
+		ConnectsAuto:          atomic.LoadInt32(&c.connectsAuto),
+		DisconnectsManual:     atomic.LoadInt32(&c.disconnectsManual),
+		DisconnectsAuto:       atomic.LoadInt32(&c.disconnectsAuto),
+		WildcatSessionsOK:     atomic.LoadInt32(&c.wildcatSessionsOK),
+		WildcatSessionsFailed: atomic.LoadInt32(&c.wildcatSessionsFailed),
+		WildcatSecondsTotal:   atomic.LoadInt64(&c.wildcatSecondsTotal),
+		WildcatStartUnix:      c.wildcatStartUnix.Load(),
 	}
 	b, err := json.Marshal(p)
 	if err != nil {
@@ -117,6 +156,7 @@ func (c *ConnStatsCollector) IncConnect(manual bool) {
 	c.sessionStart = time.Now()
 	c.mu.Unlock()
 	c.save()
+	Log.Printf("conn-stats: connect manual=%v", manual)
 }
 
 // IncDisconnect records one disconnect, same manual/auto split as IncConnect.
@@ -131,6 +171,72 @@ func (c *ConnStatsCollector) IncDisconnect(manual bool) {
 	c.sessionStart = time.Time{}
 	c.mu.Unlock()
 	c.save()
+	Log.Printf("conn-stats: disconnect manual=%v", manual)
+	// Fallback safety net: a WildCat session still marked active at full
+	// disconnect means the platform's disconnect handler didn't already
+	// close it out with a real byte-based verdict (EndWildcatSession) before
+	// calling us -- e.g. an abrupt/auto disconnect path that skipped it.
+	// Rather than leave wildcatStart dangling forever (never reported, and
+	// blocking the next StartWildcatSession from resetting the clock), count
+	// it as failed: the safe default for a session we never confirmed moved
+	// real traffic. No-op if the caller already closed it out properly.
+	c.EndWildcatSession(false, "disconnect fallback: no explicit EndWildcatSession before IncDisconnect")
+}
+
+// StartWildcatSession marks WildCat (third-party relay) as the active
+// transport for this connection, starting the clock EndWildcatSession uses
+// to compute the session's duration. Wire into each platform's connect path
+// when WildCat is the chosen transport for this session (WildCat mode is
+// decided once per connect on every platform, not toggled live mid-session).
+// Idempotent: calling this again while already active is a no-op, so
+// callers don't need to track whether one is already in progress.
+func (c *ConnStatsCollector) StartWildcatSession() {
+	if c.wildcatStartUnix.CompareAndSwap(0, time.Now().Unix()) {
+		c.save()
+		Log.Printf("conn-stats: wildcat session started")
+	} else {
+		Log.Printf("conn-stats: wildcat session already active, StartWildcatSession no-op")
+	}
+}
+
+// EndWildcatSession closes out the current WildCat session, if one is
+// active (no-op otherwise -- callers don't need to track state). success is
+// the caller's own verdict on whether the session actually worked: it must
+// reflect a real, live WLWTP/TURN session having been established, not just
+// "WildCat was toggled on" -- see each platform's disconnect handler, which
+// derives it from the relay pool's HadLiveSession() on the session's own Pool
+// instance. Deliberately NOT based on bytes transferred (tried that first --
+// see git history 2026-08-16 -- but counting bytes only on a relayed
+// connection's close raced disconnect and undercounted real, working
+// sessions as failed whenever a tunnel was still open at that moment).
+// Always records the session's duration (OK or failed) into
+// wildcatSecondsTotal.
+//
+// reason is a short, human-readable explanation for the verdict (e.g. "live
+// WLWTP/TURN session established", "pool.HadLiveSession()=false: no relay
+// ever came up", "disconnect fallback: ..."). Always logged -- added
+// 2026-08-19 after investigating a real user's WildCat failures and finding
+// this function previously recorded the outcome as a bare counter with zero
+// accompanying log line, making the failure structurally undiagnosable from
+// uploaded client logs even though the upload pipeline itself worked fine.
+func (c *ConnStatsCollector) EndWildcatSession(success bool, reason string) {
+	start := c.wildcatStartUnix.Swap(0)
+	if start == 0 {
+		Log.Printf("conn-stats: EndWildcatSession(success=%v, reason=%q) no-op — no session was active", success, reason)
+		return
+	}
+	dur := time.Now().Unix() - start
+	if dur < 0 {
+		dur = 0
+	}
+	atomic.AddInt64(&c.wildcatSecondsTotal, dur)
+	if success {
+		atomic.AddInt32(&c.wildcatSessionsOK, 1)
+	} else {
+		atomic.AddInt32(&c.wildcatSessionsFailed, 1)
+	}
+	c.save()
+	Log.Printf("conn-stats: wildcat session ended success=%v duration=%ds reason=%q", success, dur, reason)
 }
 
 // SecondsOnline returns the current session's elapsed time, or 0 if not
@@ -161,6 +267,9 @@ type ConnStatsSnapshot struct {
 	DisconnectsAuto       int
 	FlapEvents            int
 	Evictions             int
+	WildcatSessionsOK     int
+	WildcatSessionsFailed int
+	WildcatSecondsTotal   int64
 }
 
 // Snapshot collects one report's worth of data: gauge values read fresh
@@ -178,6 +287,9 @@ func (c *ConnStatsCollector) Snapshot(pool *DialerPool, router *Router) ConnStat
 	s.ConnectsAuto = int(atomic.SwapInt32(&c.connectsAuto, 0))
 	s.DisconnectsManual = int(atomic.SwapInt32(&c.disconnectsManual, 0))
 	s.DisconnectsAuto = int(atomic.SwapInt32(&c.disconnectsAuto, 0))
+	s.WildcatSessionsOK = int(atomic.SwapInt32(&c.wildcatSessionsOK, 0))
+	s.WildcatSessionsFailed = int(atomic.SwapInt32(&c.wildcatSessionsFailed, 0))
+	s.WildcatSecondsTotal = atomic.SwapInt64(&c.wildcatSecondsTotal, 0)
 	// Persist the now-zeroed counters immediately -- otherwise a process exit
 	// between this drain and the caller's actual successful upload would
 	// leave the stale pre-drain counts on disk, double-counting them into

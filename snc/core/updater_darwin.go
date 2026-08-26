@@ -278,6 +278,35 @@ func extractBinaryFromDMG(dmgPath, binaryName, destPath string) error {
 	return dst.Close()
 }
 
+// ApplyTorrentDownloadedDMG stages a torrent-downloaded DMG at the path
+// ApplyPendingUpdate expects (updateDMG in the same directory as the running
+// exe). The torrent engine has already verified every piece against the
+// magnet's btih, so no separate SHA-256 check is needed — same guarantee as
+// ApplyTorrentDownloadedZip on Windows. ApplyPendingUpdate (called at the
+// next launch) will mount the DMG via hdiutil and extract the real binary.
+func ApplyTorrentDownloadedDMG(dmgPath string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("executable: %w", err)
+	}
+	dest := filepath.Join(filepath.Dir(exe), updateDMG)
+	in, err := os.Open(dmgPath)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", dmgPath, err)
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", dest, err)
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(dest) //nolint:errcheck
+		return fmt.Errorf("copy: %w", err)
+	}
+	return out.Close()
+}
+
 // ApplyPendingUpdate checks for a downloaded update .dmg and, if found,
 // extracts the real executable from it and replaces the current one,
 // relaunching into it. Must be called before the single-instance lockfile is

@@ -219,8 +219,35 @@ dial:
 
 func (d *appStickyDialer) DialUDP(metadata *M.Metadata) (net.PacketConn, error) {
 	if metadata != nil && d.ipv6Blocked(metadata.DstIP) {
-		snc.TunLog.Printf("UDP             ipv6    blocked %s", metadata.DestinationAddress())
-		return nil, fmt.Errorf("ipv6 disabled, refusing %s", metadata.DestinationAddress())
+		// Same transparent IPv4 substitution as DialContext's TCP path (see
+		// its doc comment) -- and just as necessary here: real-time UDP
+		// protocols (STUN/TURN for WebRTC calls, e.g. Signal) have no retry
+		// budget for a hard refusal. A blocked-with-no-fallback DialUDP call
+		// here silently kills the call's media path instead of giving the
+		// caller's own IPv6/IPv4 race a chance to resolve (confirmed live,
+		// 2026-08-19: STUN to port 3478 on Cloudflare/other IPv6 anycast
+		// addresses refused outright while a call was in progress).
+		//
+		// No SNI tier here (unlike TCP): UDP datagrams have no TLS
+		// ClientHello to sniff, so only DNS-cache and active PTR-then-A
+		// resolve apply.
+		target := metadata.DestinationAddress()
+		if fqdn := snc.GlobalDNSCache.Get(metadata.DstIP.String()); fqdn != "" {
+			if ipv4 := snc.GlobalDNSCache.GetIPv4ForHost(fqdn); ipv4 != "" {
+				v4Target := net.JoinHostPort(ipv4, fmt.Sprintf("%d", metadata.DstPort))
+				snc.TunLog.Printf("UDP             ipv6    %s (%s) has no route -- substituting IPv4 %s (cached)", target, fqdn, v4Target)
+				return d.dialUDPSubstitute(metadata, v4Target)
+			}
+		}
+		if resolveDialer := d.pool.Pick(); resolveDialer != nil {
+			if ipv4, fqdn, err := snc.ActiveResolveIPv4(resolveDialer.Dial, metadata.DstIP); err == nil {
+				v4Target := net.JoinHostPort(ipv4, fmt.Sprintf("%d", metadata.DstPort))
+				snc.TunLog.Printf("UDP             ipv6    %s (%s) has no route -- substituting IPv4 %s (active-resolved)", target, fqdn, v4Target)
+				return d.dialUDPSubstitute(metadata, v4Target)
+			}
+		}
+		snc.TunLog.Printf("UDP             ipv6    blocked %s (no known IPv4 for this host)", target)
+		return nil, fmt.Errorf("ipv6 disabled, refusing %s", target)
 	}
 	if d.blockQUIC && metadata != nil && metadata.DstPort == 443 {
 		// QUIC (UDP:443) over a TCP-based SNC tunnel performs poorly: UDP-in-TCP introduces
@@ -240,4 +267,52 @@ func (d *appStickyDialer) DialUDP(metadata *M.Metadata) (net.PacketConn, error) 
 		return nil, err
 	}
 	return s5.DialUDP(nil)
+}
+
+// dialUDPSubstitute opens the same local-SOCKS5 UDP ASSOCIATE session as the
+// normal tunnel path, wrapped so every datagram addressed to the original
+// (blocked) IPv6 destination is transparently redirected to v4Target instead.
+// One appStickyDialer.DialUDP call = one tun2socks flow = one fixed
+// destination for the life of the flow, so resolving once here and pinning
+// it in the wrapper is sufficient (no per-datagram re-resolution needed).
+func (d *appStickyDialer) dialUDPSubstitute(metadata *M.Metadata, v4Target string) (net.PacketConn, error) {
+	v4Addr, err := net.ResolveUDPAddr("udp4", v4Target)
+	if err != nil {
+		return nil, fmt.Errorf("resolve substitute %s: %w", v4Target, err)
+	}
+	s5, err := proxy.NewSocks5(d.socksAddr, "", "")
+	if err != nil {
+		return nil, err
+	}
+	pc, err := s5.DialUDP(nil)
+	if err != nil {
+		return nil, err
+	}
+	return &ipv6SubstituteUDP{
+		PacketConn: pc,
+		substitute: v4Addr,
+		original:   net.UDPAddrFromAddrPort(netip.AddrPortFrom(metadata.DstIP, metadata.DstPort)),
+	}, nil
+}
+
+// ipv6SubstituteUDP rewrites every outbound datagram's destination from the
+// original blocked IPv6 address to the resolved IPv4 substitute, and rewrites
+// every inbound datagram's source back to the original IPv6 address so the
+// caller (tun2socks/gVisor, which dialed and tracks the flow by the address
+// it asked for) sees a consistent peer identity -- mirrors DialContext's
+// transparent TCP substitution, see its doc comment for why this needs to be
+// invisible to the caller rather than just returning an error.
+type ipv6SubstituteUDP struct {
+	net.PacketConn
+	substitute net.Addr
+	original   net.Addr
+}
+
+func (c *ipv6SubstituteUDP) WriteTo(b []byte, _ net.Addr) (int, error) {
+	return c.PacketConn.WriteTo(b, c.substitute)
+}
+
+func (c *ipv6SubstituteUDP) ReadFrom(b []byte) (int, net.Addr, error) {
+	n, _, err := c.PacketConn.ReadFrom(b)
+	return n, c.original, err
 }

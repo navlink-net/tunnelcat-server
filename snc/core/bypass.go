@@ -21,6 +21,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"tunnel_cat/binlog"
+	"tunnel_cat/logevent"
 )
 
 // signedCIDRList is the wire format returned by GET /api/bypass/cidr on the exit.
@@ -39,13 +42,13 @@ type signedCIDRList struct {
 // ShouldBypass checks each outbound address; BypassDialer returns a dialer
 // bound to the original NIC so packets route around the TUN.
 type BypassManager struct {
-	exitURLs  []string         // control node base URLs, tried in order; updated by SetNodes
+	exitURLs  []string          // control node base URLs, tried in order; updated by SetNodes
 	pubkey    ed25519.PublicKey // arbiter pubkey; nil = skip verification (dev)
 	cacheFile string
 
 	mu      sync.RWMutex
 	cidrs   *CIDRSet
-	country string  // ISO country code for the client's IP (e.g. "RU"); "" until first load
+	country string // ISO country code for the client's IP (e.g. "RU"); "" until first load
 	enabled bool
 	token   string // current session token; set via SetToken
 	myIP    string // client's public IP; set via SetMyIP
@@ -228,7 +231,10 @@ func (m *BypassManager) ShouldBypass(addr string) bool {
 	m.mu.RUnlock()
 
 	if !enabled {
-		Log.Printf("bypass: ShouldBypass addr=%s -> false (disabled)", addr)
+		logevent.Emit(binlog.TagBypass, logevent.EventBypassDecision,
+			logevent.Str(logevent.AttrAddr, addr),
+			logevent.Bool(logevent.AttrResult, false),
+			logevent.Str(logevent.AttrReason, logevent.BypassDecisionReasonDisabled))
 		return false
 	}
 
@@ -241,12 +247,30 @@ func (m *BypassManager) ShouldBypass(addr string) bool {
 	if ip == nil {
 		addrs, err := net.LookupHost(host)
 		if err != nil || len(addrs) == 0 {
-			Log.Printf("bypass: ShouldBypass addr=%s host=%s -> false (LookupHost failed: %v)", addr, host, err)
+			// "err" here is ad hoc -- not in events.yaml's declared fields for
+			// bypass.decision, and doesn't need to be: CBOR's attribute map is
+			// self-describing, so a decoder renders it (key "err") whether or
+			// not the schema formalized it. See events.yaml's doc comment.
+			errStr := ""
+			if err != nil {
+				errStr = err.Error()
+			}
+			logevent.Emit(binlog.TagBypass, logevent.EventBypassDecision,
+				logevent.Str(logevent.AttrAddr, addr),
+				logevent.Str("host", host),
+				logevent.Bool(logevent.AttrResult, false),
+				logevent.Str(logevent.AttrReason, logevent.BypassDecisionReasonLookupFailed),
+				logevent.Str("err", errStr))
 			return false
 		}
 		ip = net.ParseIP(addrs[0])
 		if ip == nil {
-			Log.Printf("bypass: ShouldBypass addr=%s host=%s -> false (resolved addr %q not a valid IP)", addr, host, addrs[0])
+			logevent.Emit(binlog.TagBypass, logevent.EventBypassDecision,
+				logevent.Str(logevent.AttrAddr, addr),
+				logevent.Str("host", host),
+				logevent.Bool(logevent.AttrResult, false),
+				logevent.Str(logevent.AttrReason, logevent.BypassDecisionReasonInvalidResolvedIp),
+				logevent.Str("resolved_addr", addrs[0]))
 			return false
 		}
 	}
@@ -255,7 +279,12 @@ func (m *BypassManager) ShouldBypass(addr string) bool {
 	ipStr := ip.String()
 	if exp, ok := m.failedIPs.Load(ipStr); ok {
 		if time.Now().Before(exp.(time.Time)) {
-			Log.Printf("bypass: ShouldBypass addr=%s ip=%s -> false (in failedIPs cooldown until %s)", addr, ipStr, exp.(time.Time).Format(time.RFC3339))
+			logevent.Emit(binlog.TagBypass, logevent.EventBypassDecision,
+				logevent.Str(logevent.AttrAddr, addr),
+				logevent.Str("ip", ipStr),
+				logevent.Bool(logevent.AttrResult, false),
+				logevent.Str(logevent.AttrReason, logevent.BypassDecisionReasonCooldown),
+				logevent.Str("cooldown_until", exp.(time.Time).Format(time.RFC3339)))
 			return false // route through tunnel; bypass blocked for this IP
 		}
 		m.failedIPs.Delete(ipStr)
@@ -276,19 +305,36 @@ func (m *BypassManager) ShouldBypass(addr string) bool {
 		if fqdn := GlobalDNSCache.Get(ipStr); fqdn != "" {
 			if dc := tldCountry(fqdn); dc != "" {
 				result := dc == country
-				Log.Printf("bypass: ShouldBypass addr=%s ip=%s fqdn=%s -> %v (TLD override: domainCountry=%s myCountry=%s)", addr, ipStr, fqdn, result, dc, country)
+				logevent.Emit(binlog.TagBypass, logevent.EventBypassDecision,
+					logevent.Str(logevent.AttrAddr, addr),
+					logevent.Str("ip", ipStr),
+					logevent.Str("fqdn", fqdn),
+					logevent.Bool(logevent.AttrResult, result),
+					logevent.Str(logevent.AttrReason, logevent.BypassDecisionReasonTldOverride),
+					logevent.Str("domain_country", dc),
+					logevent.Str("my_country", country))
 				return result
 			}
 		}
 	}
 
 	if cidrs == nil || cidrs.Len() == 0 {
-		Log.Printf("bypass: ShouldBypass addr=%s ip=%s -> false (no CIDR set loaded, country=%s)", addr, ipStr, country)
+		logevent.Emit(binlog.TagBypass, logevent.EventBypassDecision,
+			logevent.Str(logevent.AttrAddr, addr),
+			logevent.Str("ip", ipStr),
+			logevent.Bool(logevent.AttrResult, false),
+			logevent.Str(logevent.AttrReason, logevent.BypassDecisionReasonNoCidrSet),
+			logevent.Str("my_country", country))
 		return false
 	}
 
 	result := cidrs.Contains(ip)
-	Log.Printf("bypass: ShouldBypass addr=%s ip=%s -> %v (CIDR membership, country=%s)", addr, ipStr, result, country)
+	logevent.Emit(binlog.TagBypass, logevent.EventBypassDecision,
+		logevent.Str(logevent.AttrAddr, addr),
+		logevent.Str("ip", ipStr),
+		logevent.Bool(logevent.AttrResult, result),
+		logevent.Str(logevent.AttrReason, logevent.BypassDecisionReasonCidrMembership),
+		logevent.Str("my_country", country))
 	return result
 }
 
@@ -423,7 +469,6 @@ func (m *BypassManager) fetchCIDR(exitURL, token, myIP, localIP string) ([]byte,
 	}
 	return data, true
 }
-
 
 // refresh fetches and verifies the CIDR list from each control node in order,
 // returning true on first success.

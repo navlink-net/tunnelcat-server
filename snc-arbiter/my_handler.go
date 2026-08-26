@@ -62,6 +62,27 @@ func (h *handler) myApiKeysList(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(out) //nolint:errcheck
 }
 
+// ── GET /my/api/whoami ────────────────────────────────────────────────────────
+//
+// Minimal session-identity check for external services (e.g. navmail, see
+// tunnel_cat/mailapi) that need to know which NavLink account a forwarded
+// session cookie belongs to, without giving them any other account data.
+
+type myWhoamiJSON struct {
+	OK       bool   `json:"ok"`
+	Username string `json:"username"`
+}
+
+func (h *handler) myApiWhoami(w http.ResponseWriter, r *http.Request) {
+	sess, err := h.webSession(r)
+	if err != nil {
+		jsonErr(w, "not logged in", http.StatusUnauthorized)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(myWhoamiJSON{OK: true, Username: sess.Username}) //nolint:errcheck
+}
+
 // ── POST /my/api/keys/{key_id}/unbind ─────────────────────────────────────────
 
 func (h *handler) myUnbindKey(w http.ResponseWriter, r *http.Request) {
@@ -276,4 +297,3 @@ func (h *handler) userCanRecommend(username string) bool {
 	}
 	return ok
 }
-

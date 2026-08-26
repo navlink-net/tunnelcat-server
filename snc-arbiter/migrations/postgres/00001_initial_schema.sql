@@ -220,7 +220,7 @@ CREATE TABLE promo_uses (
 );
 CREATE INDEX promo_uses_code_user ON promo_uses(code, username);
 
--- ── notifications (core/db.go) ──────────────────────────────────────────────
+-- ── notifications / wlwtp (core/db.go) ──────────────────────────────────────
 
 CREATE TABLE notifications (
     id         TEXT    PRIMARY KEY,
@@ -228,6 +228,12 @@ CREATE TABLE notifications (
     created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM now())::bigint),
     created_by TEXT    NOT NULL DEFAULT '',
     username   TEXT
+);
+
+CREATE TABLE wlwtp_ports (
+    ctrl_addr  TEXT    PRIMARY KEY,
+    ports      TEXT    NOT NULL DEFAULT '',
+    updated_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM now())::bigint)
 );
 
 -- ── node traffic/stats (db.go trafficSchemaSQL) ─────────────────────────────
@@ -345,7 +351,8 @@ CREATE TABLE client_conn_stats (
     disconnects_manual   BIGINT NOT NULL DEFAULT 0,
     disconnects_auto     BIGINT NOT NULL DEFAULT 0,
     flap_events          BIGINT NOT NULL DEFAULT 0,
-    evictions            BIGINT NOT NULL DEFAULT 0
+    evictions            BIGINT NOT NULL DEFAULT 0,
+    wildcat_sessions     BIGINT NOT NULL DEFAULT 0
 );
 CREATE INDEX client_conn_stats_username_ts ON client_conn_stats(username, ts);
 CREATE INDEX client_conn_stats_ts ON client_conn_stats(ts);
@@ -393,6 +400,7 @@ DROP TABLE IF EXISTS app_listing_downloads;
 DROP TABLE IF EXISTS app_listings;
 DROP TABLE IF EXISTS node_counter_state;
 DROP TABLE IF EXISTS node_traffic;
+DROP TABLE IF EXISTS wlwtp_ports;
 DROP TABLE IF EXISTS notifications;
 DROP TABLE IF EXISTS promo_uses;
 DROP TABLE IF EXISTS promo_codes;

@@ -40,3 +40,6 @@ tools/yc_rotate_state.json
 # ── tools/cloudru_rotate.py: same, for cloud.ru ───────────────────────────────
 tools/cloudru-key.json
 tools/cloudru_rotate_state.json
+
+# ── tools/do_rotate.py: same, for DigitalOcean ────────────────────────────────
+tools/do-key.json

@@ -6,6 +6,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -224,6 +227,81 @@ func (a *authClient) sendEmailFrom(to, from, subject, htmlBody string) error {
 	}
 	if result.Status != "ok" && result.Reason != "" {
 		return fmt.Errorf("sendEmail: %s", result.Reason)
+	}
+	return nil
+}
+
+// profilePathPrefix is the Camerlengo file:read/file:write path namespace
+// this arbiter's API key is scoped to (path_prefix rule, granted 2026-08-20
+// specifically for this -- see profile.go). Never read/write outside it;
+// the key literally can't (Camerlengo's ACL enforces the prefix
+// server-side), but keep the prefix here too so a typo fails obviously in
+// code review rather than as a live 403 from Camerlengo.
+const profilePathPrefix = "tunnelcat-profiles/"
+
+// profilePath returns the Camerlengo file path for a given account's
+// profile blob -- sha256 of the lowercased email, not any of Camerlengo's
+// own internal user-hash schemes (those are a different, incompatible
+// format used by other things reading the "real" account record; this is
+// just our own namespaced key/value slot, isolated by path_prefix).
+func profilePath(email string) string {
+	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(email))))
+	return profilePathPrefix + hex.EncodeToString(sum[:]) + ".json"
+}
+
+// readUserProfile fetches the dev-program profile blob (name/country/phone)
+// for email via Camerlengo file:read. Returns (nil, nil) if the profile
+// doesn't exist yet (a brand-new account that never filled it in) -- that's
+// an expected, non-error state, not "not found" from a caller error.
+func (a *authClient) readUserProfile(email string) (map[string]string, error) {
+	var result struct {
+		v2Envelope
+		Content string `json:"content"`
+	}
+	err := a.v2Call("file:read", map[string]interface{}{
+		"key":  a.apiKey,
+		"path": profilePath(email),
+	}, &result)
+	if err != nil {
+		return nil, fmt.Errorf("file:read: %w", err)
+	}
+	if result.Status != "ok" {
+		if result.ErrCode == "102" {
+			return nil, nil // no profile saved yet
+		}
+		return nil, fmt.Errorf("file:read rejected: %s (%s)", result.Reason, result.ErrCode)
+	}
+	raw, err := base64.StdEncoding.DecodeString(result.Content)
+	if err != nil {
+		return nil, fmt.Errorf("decode profile content: %w", err)
+	}
+	var profile map[string]string
+	if err := json.Unmarshal(raw, &profile); err != nil {
+		return nil, fmt.Errorf("parse profile json: %w", err)
+	}
+	return profile, nil
+}
+
+// writeUserProfile saves the dev-program profile blob for email via
+// Camerlengo file:write, overwriting whatever was there before in full
+// (callers merge with the existing profile themselves first if they only
+// mean to update a subset of fields).
+func (a *authClient) writeUserProfile(email string, profile map[string]string) error {
+	raw, err := json.Marshal(profile)
+	if err != nil {
+		return fmt.Errorf("marshal profile: %w", err)
+	}
+	var result struct{ v2Envelope }
+	err = a.v2Call("file:write", map[string]interface{}{
+		"key":     a.apiKey,
+		"path":    profilePath(email),
+		"content": base64.StdEncoding.EncodeToString(raw),
+	}, &result)
+	if err != nil {
+		return fmt.Errorf("file:write: %w", err)
+	}
+	if result.Status != "ok" {
+		return fmt.Errorf("file:write rejected: %s (%s)", result.Reason, result.ErrCode)
 	}
 	return nil
 }

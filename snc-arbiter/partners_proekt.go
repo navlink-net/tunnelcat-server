@@ -8,30 +8,11 @@ import (
 	"net/http"
 )
 
-type partnersPageData struct {
-	ApkAvailable bool
-	ApkVersion   string
-
-	LisinderApkAvailable bool
-	LisinderApkVersion   string
-}
-
-func (h *handler) partnersPage(w http.ResponseWriter, r *http.Request) {
-	if setLangCookie(w, r) {
-		return
-	}
-	lang := detectLang(r)
-	apk := h.readClientBinaryInfo("proekt.apk")
-	lisinderApk := h.readClientBinaryInfo("lisinder.apk")
-	data := partnersPageData{
-		ApkAvailable: apk.Size > 0,
-		ApkVersion:   apk.Version,
-
-		LisinderApkAvailable: lisinderApk.Size > 0,
-		LisinderApkVersion:   lisinderApk.Version,
-	}
-	h.renderPageR(w, r, "partners.html", pageData{User: h.currentUser(r), Lang: lang, Data: data})
-}
+// partnersPage (GET /partners, the bare marketing landing page) was
+// removed 2026-08-25 -- migrated to a static page (Web/navlink/partners/)
+// served directly by nginx. /partners/proekt, /partners/lisinder, and the
+// download routes below are NOT part of that migration (see partnersProekt's
+// doc comment) and stay right here.
 
 func (h *handler) partnersDownloadApk(w http.ResponseWriter, r *http.Request) {
 	info := h.readClientBinaryInfo("proekt.apk")

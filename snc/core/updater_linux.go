@@ -169,6 +169,54 @@ func (u *Updater) checkAndDownload() {
 	}
 }
 
+// ApplyTorrentDownloadedDeb stages a torrent-downloaded update at the same
+// updateBinary path ApplyPendingUpdate expects. Unlike Windows (ZIP) and the
+// existing HTTP path here (a raw binary, /client-linux), the artifact
+// available via the torrent swarm for the "linux" slug is the published
+// .deb package (see deploy/torrent/sync-and-publish.sh's PRODUCTS entry --
+// the same file the download page's Linux button serves), since no raw-
+// binary torrent product exists. The binary is extracted from it at
+// usr/bin/shortnerdcat (see snc/linux/build.sh's DEB_STAGING layout) via
+// dpkg-deb -x, present on essentially any Debian-family system this .deb is
+// meant to be installed on in the first place -- avoids pulling in a pure-Go
+// xz decoder just to unpack data.tar.xz by hand.
+//
+// No separate SHA-256 check here, unlike the HTTP path -- the torrent
+// engine already verified every piece against the magnet's btih before
+// reporting the download complete.
+func ApplyTorrentDownloadedDeb(debPath string) error {
+	tmpDir, err := os.MkdirTemp("", "snc-torrent-update-*")
+	if err != nil {
+		return fmt.Errorf("mkdtemp: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cmd := exec.Command("dpkg-deb", "-x", debPath, tmpDir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("dpkg-deb -x: %w (output: %s)", err, string(out))
+	}
+
+	extracted := filepath.Join(tmpDir, "usr", "bin", "shortnerdcat")
+	if _, err := os.Stat(extracted); err != nil {
+		return fmt.Errorf("extracted binary not found at %s: %w", extracted, err)
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("executable: %w", err)
+	}
+	updatePath := filepath.Join(filepath.Dir(exe), updateBinary)
+
+	data, err := os.ReadFile(extracted)
+	if err != nil {
+		return fmt.Errorf("read extracted binary: %w", err)
+	}
+	if err := os.WriteFile(updatePath, data, 0755); err != nil {
+		return fmt.Errorf("write %s: %w", updatePath, err)
+	}
+	return nil
+}
+
 // isNumericVersion returns true when s is at least 12 ASCII digits (YYYYMMDDHHMMSS).
 func isNumericVersion(s string) bool {
 	if len(s) < 12 {

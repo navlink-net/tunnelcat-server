@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"tunnel_cat/binlog"
+	"tunnel_cat/logevent"
 )
 
 const (
@@ -40,6 +41,30 @@ const (
 // here instead of a separate in-memory buffer (see log_upload.go's history
 // comment for why the old ring-buffer approach was replaced).
 var LogDir string
+
+// mainRW is the same rotatingWriter Log writes through, kept accessible
+// separately so WriteStructuredEvent can call its WriteEvent method
+// directly -- Log itself is a *log.Logger, which has no such method and
+// would text-format/prefix a structured payload if written through
+// normally. nil until InitLogging runs, same "discard until initialized"
+// contract Log/TunLog already have.
+var mainRW *rotatingWriter
+
+// WriteStructuredEvent writes an already-encoded structured-event payload
+// (see tunnel_cat/logevent, which is the only intended caller -- it owns
+// the CBOR encoding and event schema, this package only owns where the
+// bytes land) to the same rotating log file Log writes to, under tag.
+// A no-op returning nil before InitLogging has run, matching Log's own
+// "discard until initialized" behavior rather than panicking -- an event
+// emitted during early startup, before logging is set up, is silently
+// dropped the same way a Log.Printf in that window would only reach the
+// io.Discard default.
+func WriteStructuredEvent(tag binlog.Tag, payload []byte) error {
+	if mainRW == nil {
+		return nil
+	}
+	return mainRW.WriteEvent(tag, payload)
+}
 
 // Version is set at build time via -ldflags "-X tunnel_cat/snc/core.Version=202604120936".
 // Format: YYYYMMDDHHmm (12 digits), always -- there is no fallback value. A build
@@ -103,6 +128,8 @@ func InitLogging(dir string) error {
 		return err
 	}
 	LogDir = dir
+	mainRW = rw
+	logevent.SetSink(WriteStructuredEvent)
 
 	Log.SetOutput(rw)
 	log.SetOutput(rw)
@@ -163,7 +190,38 @@ func newRotatingWriter(dir, prefix string, maxBytes, totalBytes int64, keepDays 
 }
 
 func (rw *rotatingWriter) Write(p []byte) (int, error) {
-	framed := binlog.AppendRecord(nil, rw.tagFn(p), p)
+	// FormatText marker prepended here, once, for every one of the ~888
+	// Log.Printf/logXxxf call sites across the codebase -- none of them
+	// need to change for structured events to coexist in the same stream
+	// (see binlog.PayloadFormat's doc comment). tagFn still sniffs the
+	// *unmarked* text p for its subsystem prefix, same as before.
+	marked := make([]byte, 1+len(p))
+	marked[0] = byte(binlog.FormatText)
+	copy(marked[1:], p)
+	if _, err := rw.writeFramed(rw.tagFn(p), marked); err != nil {
+		return 0, err
+	}
+	// Callers (Go's log package) only care that their own byte count was
+	// accepted, not the framed on-wire length -- matches the old ring
+	// buffer's Write contract (see its removed doc comment, same reasoning).
+	return len(p), nil
+}
+
+// WriteEvent frames and writes an already-marked structured-event payload
+// ([FormatStructured][4B event ID][CBOR attribute map], see
+// tunnel_cat/logevent) under tag -- explicit, not sniffed from content the
+// way Write's tagFn is, since tagFn parses a "[snc] subsystem:" text prefix
+// that a binary CBOR payload doesn't have.
+func (rw *rotatingWriter) WriteEvent(tag binlog.Tag, payload []byte) error {
+	_, err := rw.writeFramed(tag, payload)
+	return err
+}
+
+// writeFramed is Write and WriteEvent's shared body: binlog-frame payload
+// (which already carries its own leading format marker byte, see Write and
+// WriteEvent above) under tag, rotate/prune as needed, append to disk.
+func (rw *rotatingWriter) writeFramed(tag binlog.Tag, payload []byte) (int, error) {
+	framed := binlog.AppendRecord(nil, tag, payload)
 
 	rw.mu.Lock()
 
@@ -173,11 +231,11 @@ func (rw *rotatingWriter) Write(p []byte) (int, error) {
 			rw.mu.Unlock()
 			// Rotation failed; old file is closed. Fall back to stderr so the
 			// message is not lost, then return as if written (avoid log.Printf loops).
-			// Deliberately the raw text here, not framed -- stderr is a last-resort
-			// diagnostic path, never stored or transmitted, so the "no plain text"
-			// rule doesn't apply to it.
-			_, werr := os.Stderr.Write(p)
-			return len(p), werr
+			// Deliberately the raw payload here, not framed -- stderr is a
+			// last-resort diagnostic path, never stored or transmitted, so the
+			// "no plain text" rule doesn't apply to it.
+			_, werr := os.Stderr.Write(payload)
+			return len(payload), werr
 		}
 		// Prune in a goroutine to avoid deadlock (pruneLogFiles may call Log.Printf → Write).
 		dir, prefix, maxB, total, days := rw.dir, rw.prefix, rw.maxBytes, rw.totalBytes, rw.keepDays
@@ -187,10 +245,7 @@ func (rw *rotatingWriter) Write(p []byte) (int, error) {
 	_, err := rw.f.Write(framed)
 	rw.written += int64(len(framed))
 	rw.mu.Unlock()
-	// Callers (Go's log package) only care that their own byte count was
-	// accepted, not the framed on-wire length -- matches the old ring
-	// buffer's Write contract (see its removed doc comment, same reasoning).
-	return len(p), err
+	return len(payload), err
 }
 
 func (rw *rotatingWriter) openNew() error {

@@ -57,8 +57,8 @@ func NewConnStatsUploader(collector *ConnStatsCollector, pool *DialerPool, route
 // LogUploader (logUploadInterval, 5 minutes) so the two channels stay in
 // lockstep for anyone correlating them. Non-blocking.
 //
-// pickDialer has the exact same contract as LogUploader.Start.
-func (cu *ConnStatsUploader) Start(pickDialer func() *TunnelDialer) {
+// pickDialer/wildcatActive have the exact same contract as LogUploader.Start.
+func (cu *ConnStatsUploader) Start(pickDialer func() *TunnelDialer, wildcatActive func() bool) {
 	go func() {
 		t := time.NewTicker(logUploadInterval)
 		defer t.Stop()
@@ -67,6 +67,10 @@ func (cu *ConnStatsUploader) Start(pickDialer func() *TunnelDialer) {
 			case <-cu.stop:
 				return
 			case <-t.C:
+				if wildcatActive != nil && wildcatActive() {
+					Log.Printf("conn-stats-upload: skipping tick, WildCat active")
+					continue
+				}
 				dialer := pickDialer()
 				if dialer == nil {
 					Log.Printf("conn-stats-upload: skipping tick, not connected")
@@ -104,6 +108,9 @@ func (cu *ConnStatsUploader) upload(dialer *TunnelDialer) {
 		DisconnectsAuto       int     `json:"disconnects_auto"`
 		FlapEvents            int     `json:"flap_events"`
 		Evictions             int     `json:"evictions"`
+		WildcatSessionsOK     int     `json:"wildcat_sessions_ok"`
+		WildcatSessionsFailed int     `json:"wildcat_sessions_failed"`
+		WildcatSecondsTotal   int64   `json:"wildcat_seconds_total"`
 	}{
 		Username:              cu.username,
 		ClientVersion:         Version,
@@ -120,6 +127,9 @@ func (cu *ConnStatsUploader) upload(dialer *TunnelDialer) {
 		DisconnectsAuto:       snap.DisconnectsAuto,
 		FlapEvents:            snap.FlapEvents,
 		Evictions:             snap.Evictions,
+		WildcatSessionsOK:     snap.WildcatSessionsOK,
+		WildcatSessionsFailed: snap.WildcatSessionsFailed,
+		WildcatSecondsTotal:   snap.WildcatSecondsTotal,
 	}
 
 	payload, err := json.Marshal(body)

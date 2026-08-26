@@ -29,10 +29,11 @@ This repository contains:
 This is the open-source edition of a larger private codebase. Removed
 before publication:
 
-- **Wildcat**, a covert transport that disguised tunnel traffic as a VK
-  video call. It was woven throughout the control/arbiter/exit code as an
-  alternate transport path; that path has been fully removed, not just
-  disabled. The direct-TCP transport is unaffected.
+- **Wildcat**, a covert transport that disguised tunnel traffic as an
+  unrelated third-party real-time media call. It was woven throughout the
+  control/arbiter/exit code as an alternate transport path; that path has
+  been fully removed, not just disabled. The direct-TCP transport is
+  unaffected.
 - Marketing site (`Web/`), infrastructure deployment scripts (`deploy/`),
   internal operations tooling (node provisioning, IP rotation, key issuance
   against the production arbiter), and internal planning/business

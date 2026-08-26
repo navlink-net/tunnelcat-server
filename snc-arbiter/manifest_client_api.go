@@ -22,6 +22,25 @@ func (h *handler) checkManifestClientKey(r *http.Request) bool {
 	return h.checkClientOrLegacyKey(r, h.clientTelemetryKey)
 }
 
+// addNavlinkMirrors populates m.NavlinkMirrors from currently-live
+// "navlink_mirror" nodes (see admin_node_api.go's apiAdminNodeRegister and
+// the snc-navlink-mirror forwarder binary). Shared by both manifest-serving
+// endpoints (apiManifest in handler.go and apiManifestClientFetch below) so
+// the field is populated identically regardless of which path a client used
+// to fetch its manifest. Best-effort: a DB error here just means the field
+// stays empty, same as every other advisory field in SignedList.
+func (h *handler) addNavlinkMirrors(m *SignedList) {
+	mirrors, err := h.db.liveNodes("navlink_mirror")
+	if err != nil || len(mirrors) == 0 {
+		return
+	}
+	addrs := make([]string, 0, len(mirrors))
+	for _, n := range mirrors {
+		addrs = append(addrs, n.Addr)
+	}
+	m.NavlinkMirrors = addrs
+}
+
 // apiManifestClientFetch handles GET /api/manifest/client -- a manifest
 // source reachable at https://navlink.net/api/manifest/client (through the
 // public nginx proxy, on the web plane), for clients whose usual path (fetch
@@ -103,12 +122,28 @@ func (h *handler) apiManifestClientFetch(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	wlwtpPorts, _ := h.db.allWLWTPPorts()
+	var nodeWLWTPPorts map[string][]int
+	for _, n := range selected {
+		if pts, ok := wlwtpPorts[n.Addr]; ok && len(pts) > 0 {
+			if nodeWLWTPPorts == nil {
+				nodeWLWTPPorts = make(map[string][]int)
+			}
+			nodeWLWTPPorts[n.Addr] = pts
+		}
+	}
+
 	h.loadIPv6State()
 	ipv6On := h.ipv6Enabled()
+	h.loadTorrentState()
+	torrentOn := h.torrentFeatureEnabled()
 	{
 		var m SignedList
 		if err := json.Unmarshal(data, &m); err == nil {
 			m.IPv6Enabled = &ipv6On
+			m.TorrentEnabled = &torrentOn
+			m.TorrentMagnets = h.softwareTorrentMagnets()
+			m.TorrentManifestMagnet = h.manifestTorrentMagnet()
 			if len(notifs) > 0 {
 				m.Notifications = notifs
 			}
@@ -118,6 +153,10 @@ func (h *handler) apiManifestClientFetch(w http.ResponseWriter, r *http.Request)
 			if len(excludedAddrs) > 0 {
 				m.Excluded = excludedAddrs
 			}
+			if len(nodeWLWTPPorts) > 0 {
+				m.NodeWLWTPPorts = nodeWLWTPPorts
+			}
+			h.addNavlinkMirrors(&m)
 			if out, err := json.Marshal(m); err == nil {
 				data = out
 			}

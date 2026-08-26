@@ -3,7 +3,7 @@
 // Лицензировано под лицензией Apache 2.0
 
 // Command tunneld is the subprocess every non-iOS SDK adapter drives: a
-// small daemon that wraps tunnelcat-core's Authenticator/TunnelDialer/
+// small daemon that wraps tunnelcat-server's Authenticator/TunnelDialer/
 // SOCKS5Server behind a duplex, newline-delimited JSON-RPC protocol on a
 // local Unix domain socket (also supported natively by net.Listen("unix",
 // ...) on Windows 10 1803+, so no separate named-pipe implementation is
@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	core "github.com/kostiakhait/tunnelcat-core"
+	core "tunnel_cat/snc/core"
 )
 
 type request struct {
@@ -50,7 +50,7 @@ type connectParams struct {
 	SocksAddr string `json:"socksAddr"`
 	// PollingOnly selects TunnelDialer's legacy upload/ACK-polling mode
 	// instead of the default streaming mode. Real control/exit servers
-	// support streaming; cmd/mockserver (and tunnelcat-core's own test
+	// support streaming; cmd/mockserver (and tunnelcat-server's own test
 	// stub server) only implement polling, so set this to true when
 	// connecting through the mock.
 	PollingOnly bool `json:"pollingOnly"`

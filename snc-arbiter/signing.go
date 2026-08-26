@@ -91,8 +91,13 @@ type SignedList struct {
 	Notifications  []NotificationEntry `json:"notifications,omitempty"`    // advisory; admin broadcast messages, 24 h TTL
 	NodeSNIs       map[string][]string `json:"node_snis,omitempty"`        // advisory; addr → SNI rotation list for that control
 	Excluded       []string            `json:"excluded,omitempty"`         // advisory; control addrs clients must skip (decommissioned nodes)
+	NodeWLWTPPorts map[string][]int    `json:"node_wlwtp_ports,omitempty"` // advisory; addr → dynamic WLWTP UDP ports (reported by each control)
 	SelfRegion     string              `json:"self_region,omitempty"`      // advisory; the *calling* node's own effective region (RegionOverride-aware), resolved server-side by X-Node-Token so the node never has to self-detect its own IP/region (see incident 2026-08-12: outboundIP() returns the NAT-internal IP behind cloud-provider NAT, e.g. Yandex Cloud, so a node can never match itself in Regions by IP)
 	IPv6Enabled    *bool               `json:"ipv6_enabled,omitempty"`     // advisory; nil → client keeps its own local default. Admin-controlled global kill switch (see admin_ipv6.go) -- when false, clients force their "disable IPv6" behavior on and hide the manual toggle, since it's arbiter-controlled at that point. Added 2026-08-12: every exit lacks IPv6 and none of the hosting providers in use can enable it, which was silently breaking Facebook/WhatsApp.
+	NavlinkMirrors []string            `json:"navlink_mirrors,omitempty"`  // advisory; addrs ("host:port", same format as every other node addr in this struct) of live navlink.net-mirror forwarder nodes a client can fall back to (prefixing "https://") if navlink.net itself is unreachable, e.g. blocked in-country
+	TorrentEnabled *bool               `json:"torrent_enabled,omitempty"`  // advisory; nil = arbiter said nothing, keep local default (false). Fleet-wide kill switch for the client-side BitTorrent engine -- see admin_torrent_enabled.go and snc/core/torrent.go's TorrentGate. Unlike IPv6Enabled, false is the safe default here, so this is always bolted on (never left nil) by apiManifest/apiManifestClientFetch, same treatment as IPv6Enabled.
+	TorrentMagnets       map[string]string `json:"torrent_magnets,omitempty"`        // advisory; product/platform slug -> magnet URI for client software the torrent-seed fleet already seeds -- see torrent_magnets.go
+	TorrentManifestMagnet string           `json:"torrent_manifest_magnet,omitempty"` // advisory; magnet for this arbiter's own last-published signed manifest torrent -- see torrent_magnets.go
 }
 
 // ── signed whitelist ──────────────────────────────────────────────────────────

@@ -20,6 +20,7 @@ type keygenPageData struct {
 	Username string
 	Region   string
 	Regions  []string // known region codes for dropdown
+	FullKey  bool
 	ClientID string
 	Key      string
 	Error    string
@@ -39,25 +40,31 @@ func (h *handler) adminKeygenPageSubmit(w http.ResponseWriter, r *http.Request) 
 	}
 	username := strings.TrimSpace(r.FormValue("username"))
 	region := strings.ToUpper(strings.TrimSpace(r.FormValue("region")))
+	fullKey := r.FormValue("full_key") != ""
 	if username == "" {
-		h.renderKeygenPage(w, r, keygenPageData{Error: "username is required", Region: region})
+		h.renderKeygenPage(w, r, keygenPageData{Error: "username is required", Region: region, FullKey: fullKey})
 		return
 	}
 
-	issued, err := h.issueKey(username, region, "admin_keygen_page")
+	source := "admin_keygen_page"
+	if fullKey {
+		source = "admin_keygen_page_full"
+	}
+	issued, err := h.issueKeyOpts(username, region, fullKey, source)
 	if err != nil {
 		logWarnf("keygen-page: issueKey for %s: %v", username, err)
 		msg := "key generation failed"
 		if err.Error() == "no live control nodes" {
 			msg = "no live control nodes — make sure at least one control is online"
 		}
-		h.renderKeygenPage(w, r, keygenPageData{Error: msg, Username: username, Region: region})
+		h.renderKeygenPage(w, r, keygenPageData{Error: msg, Username: username, Region: region, FullKey: fullKey})
 		return
 	}
 
 	h.renderKeygenPage(w, r, keygenPageData{
 		Username: username,
 		Region:   region,
+		FullKey:  fullKey,
 		ClientID: issued.ClientID,
 		Key:      issued.KeyStr,
 	})
@@ -132,6 +139,14 @@ type issuedKey struct {
 // region biases bootstrap control selection toward nearby nodes. source
 // records which UI/endpoint triggered issuance (see KeyRow.Source).
 func (h *handler) issueKey(username, region, source string) (*issuedKey, error) {
+	return h.issueKeyOpts(username, region, false, source)
+}
+
+// issueKeyOpts is issueKey with the option to embed every live control node
+// instead of the usual region-biased, maxKeyControls-capped subset. Used for
+// admin-issued "full" keys (e.g. for staff/monitoring accounts that should
+// never be stranded if their regional controls go down).
+func (h *handler) issueKeyOpts(username, region string, fullKey bool, source string) (*issuedKey, error) {
 	u, err := h.db.getOrCreateUser(username)
 	if err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
@@ -140,7 +155,15 @@ func (h *handler) issueKey(username, region, source string) (*issuedKey, error) 
 	if err != nil || len(controls) == 0 {
 		return nil, fmt.Errorf("no live control nodes")
 	}
-	nodes := h.pickBootstrapControls(controls, region)
+	var nodes []string
+	if fullKey {
+		nodes = make([]string, len(controls))
+		for i, n := range controls {
+			nodes[i] = n.Addr
+		}
+	} else {
+		nodes = h.pickBootstrapControls(controls, region)
+	}
 	keyID := uuid.New().String()
 	p := &keyPayload{
 		Username:      username,
@@ -176,13 +199,18 @@ func (h *handler) adminGenerateKey(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Username string `json:"username"`
 		Region   string `json:"region"`
+		FullKey  bool   `json:"full_key"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Username == "" {
 		jsonErr(w, "username required", http.StatusBadRequest)
 		return
 	}
 	req.Region = strings.ToUpper(strings.TrimSpace(req.Region))
-	issued, err := h.issueKey(req.Username, req.Region, "admin_api")
+	source := "admin_api"
+	if req.FullKey {
+		source = "admin_api_full"
+	}
+	issued, err := h.issueKeyOpts(req.Username, req.Region, req.FullKey, source)
 	if err != nil {
 		logWarnf("keygen: issueKey for %s: %v", req.Username, err)
 		status := http.StatusInternalServerError

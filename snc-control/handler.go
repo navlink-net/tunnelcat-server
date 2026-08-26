@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"strings"
@@ -20,28 +21,56 @@ import (
 // by this control node (up + down combined). Read by the heartbeat to compute bw_mbps.
 var controlBytesTotal atomic.Int64
 
-// SNI pool for port-443 demultiplexing.
-// The relay-API connection type picks a random SNI from this pool at dial
-// time. The server recognises any SNI from the pool; all other SNIs are
-// proxied to exit. Using a pool of plausible CDN-like hostnames instead of
-// a fixed value prevents DPI fingerprinting by a single known string.
-var relayAPISNIPool = []string{
-	"ctrl.cdn-assets.net",
-	"api.cdn-relay.net",
-	"mgmt.edge-static.net",
-	"admin.cdn-cache.net",
-	"svc.static-assets.net",
-}
+// SNI pools for port-443 demultiplexing.
+// Each special connection type picks a random SNI from its pool at dial time.
+// The server recognises any SNI from any pool; all other SNIs are proxied to exit.
+// Using pools of plausible CDN-like hostnames instead of fixed values prevents
+// DPI fingerprinting by a single known string.
+var (
+	relayAPISNIPool = []string{
+		"ctrl.cdn-assets.net",
+		"api.cdn-relay.net",
+		"mgmt.edge-static.net",
+		"admin.cdn-cache.net",
+		"svc.static-assets.net",
+	}
+	signalSNIPool = []string{
+		"push.cdn-assets.net",
+		"ws.cdn-relay.net",
+		"live.edge-static.net",
+		"stream.cdn-cache.net",
+		"feed.static-assets.net",
+	}
+	natRelaySNIPool = []string{
+		"edge.cdn-assets.net",
+		"relay.cdn-relay.net",
+		"proxy.edge-static.net",
+		"gateway.cdn-cache.net",
+		"forward.static-assets.net",
+	}
+)
 
 // sniType maps every recognised SNI value to its connection category.
-// Populated once at init from the pool above.
+// Populated once at init from the three pools above.
 var sniType map[string]string
 
 func init() {
-	sniType = make(map[string]string, len(relayAPISNIPool))
+	sniType = make(map[string]string, len(relayAPISNIPool)+len(signalSNIPool)+len(natRelaySNIPool))
 	for _, s := range relayAPISNIPool {
 		sniType[s] = "relay"
 	}
+	for _, s := range signalSNIPool {
+		sniType[s] = "signal"
+	}
+	for _, s := range natRelaySNIPool {
+		sniType[s] = "nat"
+	}
+}
+
+// randomSNI returns a random element from pool. Used by gossip and other
+// internal callers that need to pick an SNI from one of the routing pools.
+func randomSNI(pool []string) string {
+	return pool[rand.Intn(len(pool))]
 }
 
 // countWriter wraps an io.Writer and counts the bytes written through it.
@@ -161,6 +190,12 @@ type tcpProxy struct {
 	cidrC     *cidrCache // client country lookup for exit selection; nil = skip
 	nodeToken string     // sent as X-Node-Token when calling exit relay endpoints
 
+	// selfAddr is this node's own "host:port" as it appears in the arbiter
+	// manifest / client key (e.g. "A_IP:443"). Set once at startup via
+	// SetSelfAddr. Used by relayAPIHandler.WLWTPPortsForSelf to look up this
+	// node's own assigned WLWTP ports in the manifest.
+	selfAddr string
+
 	// activeMu guards active: a registry of open exitConns keyed by exit addr.
 	// When an exit goes dead, closeExitConns closes all its connections so clients
 	// reconnect immediately rather than waiting for TCP timeout.
@@ -176,6 +211,13 @@ func newTCPProxy(exits *ExitRegistry, relayAPI *relayAPIHandler, relayCfg *tls.C
 		active:    make(map[string]map[int]net.Conn),
 	}
 	return p
+}
+
+// SetSelfAddr records this node's own "host:port" manifest address, used by
+// relayAPIHandler.WLWTPPortsForSelf to find this node's assigned WLWTP ports
+// in the manifest.
+func (p *tcpProxy) SetSelfAddr(addr string) {
+	p.selfAddr = addr
 }
 
 func (p *tcpProxy) registerExitConn(addr string, conn net.Conn) int {
@@ -230,8 +272,13 @@ func (p *tcpProxy) handle(client net.Conn) {
 	// Prefer channel byte (new SNC clients); fall back to SNI (gossip, old clients).
 	connType := ""
 	if ch, ok := extractChannel(peeked); ok {
-		if ch == 0x01 {
+		switch ch {
+		case 0x01:
 			connType = "relay"
+		case 0x02:
+			connType = "signal"
+		case 0x03:
+			connType = "nat"
 		}
 		logDebugf("handle: conn from %s channel=0x%02x type=%q", client.RemoteAddr(), ch, connType)
 	} else {

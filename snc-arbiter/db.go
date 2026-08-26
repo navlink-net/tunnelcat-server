@@ -175,6 +175,11 @@ CREATE TABLE IF NOT EXISTS notifications (
 	created_by TEXT    NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS wlwtp_ports (
+	ctrl_addr  TEXT    PRIMARY KEY,
+	ports      TEXT    NOT NULL DEFAULT '',
+	updated_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
 `
 
 // migrations runs ALTER TABLE statements that are safe to call on existing
@@ -346,6 +351,9 @@ func openDB(path string) (*DB, error) {
 	d := &DB{db: &rebindingDB{db}}
 	if err := d.initKeysSchema(); err != nil {
 		return nil, fmt.Errorf("keys schema: %w", err)
+	}
+	if err := d.initDevAppsSchema(); err != nil {
+		return nil, fmt.Errorf("dev_applications schema: %w", err)
 	}
 	// Run column-addition migrations; each ALTER TABLE may fail if the column
 	// already exists (from the schema or a prior run) — that is expected and safe.
@@ -1093,7 +1101,7 @@ type nodeProvisionInfo struct {
 // fallback path has no such index -- and deliberately can't have a simple
 // one, since a decommissioned row is allowed to share its old addr with a
 // newer, unrelated live row at the same address (observed in production:
-// id=3 decommissioned and id=71 live both at 203.0.113.13). A real fix
+// id=3 decommissioned and id=71 live both at 217.28.223.15). A real fix
 // would need a partial unique index scoped to non-decommissioned rows,
 // which first requires auditing prod for any existing live-row duplicates
 // it would reject -- tracked as a follow-up, not done here. What IS done
@@ -1193,7 +1201,7 @@ func (d *DB) deleteNode(nodeID int64) error {
 // nodePeaksAndDistribution already does).
 //
 // Confirmed as a real, reproduced data-loss bug on 2026-08-09: hard-deleting
-// node 30 (203.0.113.14, 5379 samples of real history) made its entire
+// node 30 (188.227.106.45, 5379 samples of real history) made its entire
 // traffic contribution vanish from network-wide stats, including the
 // cumulative total. Fixed there by re-inserting a decommissioned stub row
 // with the same id; this method is the code-level fix so it doesn't recur.
@@ -1756,7 +1764,7 @@ type PendingUser struct {
 func (d *DB) listPendingConfirmations(like string) ([]PendingUser, error) {
 	rows, err := d.db.Query(`
 		SELECT uc.username, uc.created_at,
-		       COALESCE(GROUP_CONCAT(DISTINCT pu.code), '') AS promo_codes,
+		       COALESCE(STRING_AGG(DISTINCT pu.code, ','), '') AS promo_codes,
 		       COALESCE(s.status, '')                       AS sub_status,
 		       COALESCE(s.paid_until, 0)                   AS paid_until
 		FROM user_confirmations uc
@@ -1784,6 +1792,57 @@ func (d *DB) listPendingConfirmations(like string) ([]PendingUser, error) {
 			u.PaidUntil = time.Unix(paidUntil, 0)
 		}
 		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// NeverConnectedAccount classifies why a registered account has no
+// user_stats row, to distinguish real stuck-at-confirmation signups from
+// accounts that reached this state some other way (admin-created,
+// bulk-imported, internal probes) -- see 2026-08-20 dashboard-gap
+// investigation, where a naive "email everyone in this list" would have
+// hit BananaMeter probe accounts and a block of unrelated corporate
+// addresses with no confirmation record and no key ever issued.
+type NeverConnectedAccount struct {
+	Username         string
+	ConfirmationSrc  string // user_confirmations.source; "" if no row (pre-existing/no record)
+	HasPendingRecord bool   // true iff a user_confirmations row exists at all
+	Confirmed        bool   // only meaningful when HasPendingRecord
+	KeyCount         int    // number of keys ever issued (0 = no key was ever generated)
+}
+
+// listNeverConnectedAccounts returns every registered username that has no
+// row in user_stats -- i.e. has never had traffic seen through an exit node --
+// along with enough context to classify each one instead of guessing from
+// the address alone.
+func (d *DB) listNeverConnectedAccounts() ([]NeverConnectedAccount, error) {
+	rows, err := d.db.Query(`
+		SELECT u.username,
+		       COALESCE(uc.source, ''),
+		       (uc.username IS NOT NULL) AS has_record,
+		       COALESCE(uc.confirmed, 0),
+		       COALESCE(k.key_count, 0)
+		FROM users u
+		LEFT JOIN user_stats us ON us.username = u.username
+		LEFT JOIN user_confirmations uc ON uc.username = u.username
+		LEFT JOIN (SELECT username, COUNT(*) AS key_count FROM keys GROUP BY username) k
+		       ON k.username = u.username
+		WHERE us.username IS NULL
+		ORDER BY u.id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []NeverConnectedAccount
+	for rows.Next() {
+		var a NeverConnectedAccount
+		var confirmed int
+		if err := rows.Scan(&a.Username, &a.ConfirmationSrc, &a.HasPendingRecord, &confirmed, &a.KeyCount); err != nil {
+			return nil, err
+		}
+		a.Confirmed = confirmed != 0
+		out = append(out, a)
 	}
 	return out, rows.Err()
 }
@@ -1984,14 +2043,19 @@ func (d *DB) getSetting(key string) (value string, ok bool, err error) {
 }
 
 func (d *DB) setSetting(key, value, updatedBy string) error {
+	// updated_at bound as a Go-side time.Now().Unix() rather than SQL-side
+	// strftime('%s','now') -- the latter is SQLite-only and has no Postgres
+	// equivalent, so this upsert failed outright against Postgres
+	// ("function strftime(unknown, unknown) does not exist"); same fix
+	// already applied to setWLWTPPorts for the same reason.
 	_, err := d.db.Exec(
 		`INSERT INTO system_settings(key,value,updated_at,updated_by)
-		 VALUES(?,?,strftime('%s','now'),?)
+		 VALUES(?,?,?,?)
 		 ON CONFLICT(key) DO UPDATE SET
 		   value=excluded.value,
 		   updated_at=excluded.updated_at,
 		   updated_by=excluded.updated_by`,
-		key, value, updatedBy)
+		key, value, time.Now().Unix(), updatedBy)
 	return err
 }
 
@@ -2615,3 +2679,87 @@ func (d *DB) deleteNodeStatsOlderThan(nodeID, cutoff int64) error {
 	return err
 }
 
+// ── WLWTP dynamic port assignments ───────────────────────────────────────────
+
+// setWLWTPPorts stores the dynamic port list for a control node.
+// ports is stored as comma-separated integers.
+func (d *DB) setWLWTPPorts(ctrlAddr string, ports []int) error {
+	s := intsToCSV(ports)
+	// updated_at bound as a Go-side time.Now().Unix() rather than SQL-side
+	// strftime('%s','now') -- the latter is SQLite-only and has no Postgres
+	// equivalent, so this upsert failed outright against Postgres
+	// ("function strftime(unknown, unknown) does not exist") before this fix.
+	_, err := d.db.Exec(
+		`INSERT INTO wlwtp_ports(ctrl_addr, ports, updated_at)
+		 VALUES(?,?,?)
+		 ON CONFLICT(ctrl_addr) DO UPDATE SET ports=excluded.ports, updated_at=excluded.updated_at`,
+		ctrlAddr, s, time.Now().Unix())
+	return err
+}
+
+// getWLWTPPorts returns the dynamic port list for a control node, or nil if not set.
+func (d *DB) getWLWTPPorts(ctrlAddr string) ([]int, error) {
+	var s string
+	err := d.db.QueryRow(`SELECT ports FROM wlwtp_ports WHERE ctrl_addr=?`, ctrlAddr).Scan(&s)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return csvToInts(s), nil
+}
+
+// allWLWTPPorts returns the dynamic port assignments for all control nodes.
+func (d *DB) allWLWTPPorts() (map[string][]int, error) {
+	rows, err := d.db.Query(`SELECT ctrl_addr, ports FROM wlwtp_ports`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string][]int)
+	for rows.Next() {
+		var addr, s string
+		if err := rows.Scan(&addr, &s); err != nil {
+			continue
+		}
+		out[addr] = csvToInts(s)
+	}
+	return out, rows.Err()
+}
+
+// intsToCSV converts a slice of ints to a comma-separated string.
+func intsToCSV(ports []int) string {
+	if len(ports) == 0 {
+		return ""
+	}
+	b := make([]byte, 0, len(ports)*5)
+	for i, p := range ports {
+		if i > 0 {
+			b = append(b, ',')
+		}
+		b = append(b, []byte(fmt.Sprintf("%d", p))...)
+	}
+	return string(b)
+}
+
+// csvToInts parses a comma-separated string into a slice of ints, skipping
+// invalid entries.
+func csvToInts(s string) []int {
+	if s == "" {
+		return nil
+	}
+	var out []int
+	start := 0
+	for i := 0; i <= len(s); i++ {
+		if i == len(s) || s[i] == ',' {
+			part := s[start:i]
+			start = i + 1
+			var v int
+			if n, err := fmt.Sscanf(part, "%d", &v); n == 1 && err == nil && v > 0 && v <= 65535 {
+				out = append(out, v)
+			}
+		}
+	}
+	return out
+}

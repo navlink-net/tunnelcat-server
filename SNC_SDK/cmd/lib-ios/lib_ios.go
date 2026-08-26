@@ -4,14 +4,14 @@
 
 //go:build ios
 
-// Command lib-ios is tunnelcat-core's iOS SDK adapter — compiled as a static
+// Command lib-ios is tunnelcat-server's iOS SDK adapter — compiled as a static
 // c-archive (go build -buildmode=c-archive) and linked directly into an iOS
 // app/extension target, since iOS sandboxing forbids spawning subprocesses
 // (the mechanism every other SDK adapter uses via cmd/tunneld).
 //
 // Modeled on a proven pattern for exactly this constraint: it runs a SOCKS5
 // server on 127.0.0.1:0 and exposes the port via TCGetSocksPort — no
-// TUN/raw-packet handling, since tunnelcat-core has no iOS packet-tunnel
+// TUN/raw-packet handling, since tunnelcat-server has no iOS packet-tunnel
 // primitive. An app embeds this as a WKWebView SOCKS5 proxy (iOS 17+
 // WKWebsiteDataStore.proxyConfigurations) or any other SOCKS5-consuming
 // component.
@@ -40,7 +40,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	core "github.com/kostiakhait/tunnelcat-core"
+	core "tunnel_cat/snc/core"
 )
 
 const (

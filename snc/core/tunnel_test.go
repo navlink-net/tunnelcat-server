@@ -159,8 +159,8 @@ func TestDoPostRespectsPerCallTimeout(t *testing.T) {
 
 // TestIsTransportFailure locks down the error-text classification that
 // decides whether a failed request is attributable to the connection itself
-// being broken (worth reporting via SetTransportFailHook) versus a normal
-// application-level rejection that should NOT evict the control.
+// being broken (worth reporting to the relay pool's ReportStreamFailure) versus a
+// normal application-level rejection that should NOT evict the control.
 func TestIsTransportFailure(t *testing.T) {
 	cases := []struct {
 		name string

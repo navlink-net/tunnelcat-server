@@ -34,9 +34,9 @@ import (
 )
 
 const (
-	reflectNonceSize = 12 // ChaCha20-Poly1305 nonce
+	reflectNonceSize = 12   // ChaCha20-Poly1305 nonce
 	reflectMaxPkt    = 1500 // UDP MTU; 256 was too small for Announce packets (~280 bytes)
-	reflectTSWindow  = 30 // seconds; older requests are dropped
+	reflectTSWindow  = 30   // seconds; older requests are dropped
 
 	// Per-source-IP rate limit on the UDP tunnel path.
 	// Legitimate clients send at most a handful of packets per second even under
@@ -126,20 +126,22 @@ var reflectorKey = func() []byte {
 }()
 
 // UDPReflector accepts encrypted UDP datagrams and replies with the observed
-// source address of the sender.  Datagrams starting with the SNCU magic bytes
-// are dispatched to tunnelH (UDP tunnel handler) instead.  Datagrams that
-// authenticate as DHT packets are dispatched to dhtH.
+// source address of the sender.  Datagrams classified as QUIC (see
+// quicCIDTracker.classify) are handed to quicConn for the QUIC tunnel
+// transport.  Datagrams that authenticate as DHT packets are dispatched to
+// dhtH.
 type UDPReflector struct {
-	conn    *net.UDPConn
-	tunnelH *udpTunnelHandler // nil = tunnel disabled
-	dhtH    *dhtServer        // nil = DHT disabled
-	rl      *ipRateLimiter
+	conn     *net.UDPConn
+	quicConn *quicPacketConn // nil = QUIC tunnel disabled
+	quicCIDs *quicCIDTracker // nil = QUIC tunnel disabled
+	dhtH     *dhtServer      // nil = DHT disabled
+	rl       *ipRateLimiter
 }
 
 // newUDPReflector creates a UDPReflector bound to conn.
-// tunnelH and dhtH may be nil to disable those handlers.
-func newUDPReflector(conn *net.UDPConn, tunnelH *udpTunnelHandler, dhtH *dhtServer) *UDPReflector {
-	return &UDPReflector{conn: conn, tunnelH: tunnelH, dhtH: dhtH, rl: newIPRateLimiter()}
+// quicConn/quicCIDs and dhtH may be nil to disable those handlers.
+func newUDPReflector(conn *net.UDPConn, quicConn *quicPacketConn, quicCIDs *quicCIDTracker, dhtH *dhtServer) *UDPReflector {
+	return &UDPReflector{conn: conn, quicConn: quicConn, quicCIDs: quicCIDs, dhtH: dhtH, rl: newIPRateLimiter()}
 }
 
 // Serve runs the reflector loop in the calling goroutine.
@@ -162,15 +164,15 @@ func (r *UDPReflector) Serve() {
 
 		logDebugf("udp-reflect: recv %d bytes from %s", n, src)
 
-		// SNCU magic â†’ UDP tunnel handler (client tunnel frames).
-		if r.tunnelH != nil && len(pkt) >= 4 &&
-			uint32(pkt[0])<<24|uint32(pkt[1])<<16|uint32(pkt[2])<<8|uint32(pkt[3]) == udpTunnelMagic {
+		// QUIC tunnel traffic (new connection attempt or an established
+		// connection's short-header packet) → hand to the QUIC transport.
+		if r.quicConn != nil && r.quicCIDs.classify(pkt) {
 			if !r.rl.allow(src.IP.String()) {
 				continue
 			}
 			cp := make([]byte, len(pkt))
 			copy(cp, pkt)
-			r.tunnelH.handle(src, cp)
+			r.quicConn.deliver(cp, src)
 			continue
 		}
 

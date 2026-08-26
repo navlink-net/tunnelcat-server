@@ -1,6 +1,6 @@
-// Copyright (C) Konstantin Khait & Claude Code
-// For IT Partners Solutions and Freedom and Rights
-// 2026
+// The Tunnel Cat Project
+// Copyright (C) NavLink, 2026
+// Лицензировано под лицензией Apache 2.0
 
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -23,7 +23,7 @@ public record ConnectParams(
     string Username = "",
     string Password = "",
     string SocksAddr = "",
-    /// <summary>cmd/mockserver (and tunnelcat-core's own test stub) only support polling mode.</summary>
+    /// <summary>cmd/mockserver (and tunnelcat-server's own test stub) only support polling mode.</summary>
     bool PollingOnly = false
 );
 

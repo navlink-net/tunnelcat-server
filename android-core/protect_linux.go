@@ -17,7 +17,9 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
-	snc "tunnel_cat/snc/core"
+
+	"tunnel_cat/binlog"
+	"tunnel_cat/logevent"
 )
 
 // ProtectClient serializes VpnService.protect(fd) round-trips over a Unix socket.
@@ -25,7 +27,7 @@ import (
 //
 // Background: Android routes all traffic from a VPN process through the VPN's own
 // TUN interface by default. Without protection, every socket opened by snc-core
-// (tunnel connections to controls, DNS lookups, telemetry HTTP requests) would loop
+// (tunnel connections to controls, DNS lookups, WildCat HTTP requests) would loop
 // back through the TUN and be intercepted by itself â€” a routing loop that kills
 // connectivity entirely. VpnService.protect(fd) marks a socket's fd as exempt from
 // VPN routing, making it use the physical NIC instead. The only way to call a Java
@@ -100,13 +102,14 @@ func (p *ProtectClient) reconnectLocked() error {
 	if p.socketPath == "" {
 		return fmt.Errorf("protect: no socket path for reconnect")
 	}
-	snc.Log.Printf("protect: reconnecting to %s", p.socketPath)
+	logevent.Emit(binlog.TagSystem, logevent.EventProtectReconnecting,
+		logevent.Str("socket_path", p.socketPath))
 	conn, err := p.dial(p.socketPath)
 	if err != nil {
 		return err
 	}
 	p.conn = conn
-	snc.Log.Printf("protect: reconnected OK")
+	logevent.Emit(binlog.TagSystem, logevent.EventProtectReconnected)
 	return nil
 }
 
@@ -133,7 +136,8 @@ func (p *ProtectClient) StartWatchdog(stopCh <-chan struct{}) {
 				if conn == nil {
 					continue
 				}
-				snc.Log.Printf("protect: watchdog: call hung for %s â€” closing conn to unblock", elapsed.Round(time.Millisecond))
+				logevent.Emit(binlog.TagSystem, logevent.EventProtectWatchdogHung,
+					logevent.Int("elapsed_ms", elapsed.Round(time.Millisecond).Milliseconds()))
 				conn.Close()
 			case <-stopCh:
 				return
@@ -144,7 +148,7 @@ func (p *ProtectClient) StartWatchdog(stopCh <-chan struct{}) {
 
 // DialControl implements core.SetDialControl â€” called for every new outbound socket.
 // Registered globally via snc.SetDialControl so the core library's internal dialers
-// (TunnelDialer, relay-API REST client, DHT UDP) automatically bypass the TUN without
+// (TunnelDialer, WildCat REST client, DHT UDP) automatically bypass the TUN without
 // knowing anything about Android's VPN model.
 func (p *ProtectClient) DialControl(network, address string, c syscall.RawConn) error {
 	var fd int = -1
@@ -168,7 +172,8 @@ func (p *ProtectClient) protectFD(fd int) error {
 func (p *ProtectClient) protectFDLocked(fd int, allowRetry bool) error {
 	if p.conn == nil {
 		if err := p.reconnectLocked(); err != nil {
-			snc.Log.Printf("protect: WARNING no protect socket â€” fd=%d will NOT be protected", fd)
+			logevent.Emit(binlog.TagSystem, logevent.EventProtectNoSocket,
+				logevent.Int("fd", int64(fd)))
 			return nil
 		}
 	}
@@ -186,34 +191,59 @@ func (p *ProtectClient) protectFDLocked(fd int, allowRetry bool) error {
 	p.conn.SetDeadline(time.Now().Add(5 * time.Second)) //nolint:errcheck
 
 	if _, _, err := p.conn.WriteMsgUnix([]byte{1}, oob, nil); err != nil {
-		snc.Log.Printf("protect: ERROR send fd=%d elapsed=%s: %v", fd, time.Since(t0).Round(time.Millisecond), err)
+		logevent.Emit(binlog.TagSystem, logevent.EventProtectIoError,
+			logevent.Int("fd", int64(fd)),
+			logevent.Int("elapsed_ms", time.Since(t0).Round(time.Millisecond).Milliseconds()),
+			logevent.Str("stage", logevent.ProtectIoErrorStageSend),
+			logevent.Str("err", err.Error()))
 		if !allowRetry {
 			return fmt.Errorf("protect: send fd: %w", err)
 		}
 		if rerr := p.reconnectLocked(); rerr != nil {
-			snc.Log.Printf("protect: reconnect after send error: %v", rerr)
+			logevent.Emit(binlog.TagSystem, logevent.EventProtectReconnectAfterError,
+				logevent.Str("stage", logevent.ProtectIoErrorStageSend),
+				logevent.Str(logevent.AttrResult, logevent.ProtectReconnectAfterErrorResultError),
+				logevent.Str("err", rerr.Error()))
 			return fmt.Errorf("protect: send fd: %w", err)
 		}
+		logevent.Emit(binlog.TagSystem, logevent.EventProtectReconnectAfterError,
+			logevent.Str("stage", logevent.ProtectIoErrorStageSend),
+			logevent.Str(logevent.AttrResult, logevent.ProtectReconnectAfterErrorResultOk))
 		return p.protectFDLocked(fd, false)
 	}
 
 	ack := make([]byte, 1)
 	if _, err := io.ReadFull(p.conn, ack); err != nil {
-		snc.Log.Printf("protect: ERROR ack fd=%d elapsed=%s: %v", fd, time.Since(t0).Round(time.Millisecond), err)
+		logevent.Emit(binlog.TagSystem, logevent.EventProtectIoError,
+			logevent.Int("fd", int64(fd)),
+			logevent.Int("elapsed_ms", time.Since(t0).Round(time.Millisecond).Milliseconds()),
+			logevent.Str("stage", logevent.ProtectIoErrorStageAck),
+			logevent.Str("err", err.Error()))
 		if !allowRetry {
 			return fmt.Errorf("protect: ack: %w", err)
 		}
 		if rerr := p.reconnectLocked(); rerr != nil {
-			snc.Log.Printf("protect: reconnect after ack error: %v", rerr)
+			logevent.Emit(binlog.TagSystem, logevent.EventProtectReconnectAfterError,
+				logevent.Str("stage", logevent.ProtectIoErrorStageAck),
+				logevent.Str(logevent.AttrResult, logevent.ProtectReconnectAfterErrorResultError),
+				logevent.Str("err", rerr.Error()))
 			return fmt.Errorf("protect: ack: %w", err)
 		}
+		logevent.Emit(binlog.TagSystem, logevent.EventProtectReconnectAfterError,
+			logevent.Str("stage", logevent.ProtectIoErrorStageAck),
+			logevent.Str(logevent.AttrResult, logevent.ProtectReconnectAfterErrorResultOk))
 		return p.protectFDLocked(fd, false)
 	}
 
 	if ack[0] != 1 {
-		snc.Log.Printf("protect: NACK from Kotlin fd=%d elapsed=%s ack=0x%02x", fd, time.Since(t0).Round(time.Millisecond), ack[0])
+		logevent.Emit(binlog.TagSystem, logevent.EventProtectNack,
+			logevent.Int("fd", int64(fd)),
+			logevent.Int("elapsed_ms", time.Since(t0).Round(time.Millisecond).Milliseconds()),
+			logevent.Int("ack_byte", int64(ack[0])))
 		return fmt.Errorf("protect: nack from Kotlin")
 	}
-	snc.Log.Printf("protect: OK fd=%d elapsed=%s", fd, time.Since(t0).Round(time.Millisecond))
+	logevent.Emit(binlog.TagSystem, logevent.EventProtectOk,
+		logevent.Int("fd", int64(fd)),
+		logevent.Int("elapsed_ms", time.Since(t0).Round(time.Millisecond).Milliseconds()))
 	return nil
 }

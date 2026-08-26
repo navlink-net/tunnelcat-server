@@ -126,3 +126,27 @@ func (db *DB) CountAllAccounts() (int, error) {
 	return n, err
 }
 
+// WildcatSessionSummary is the WildCat (third-party relay) session outcome
+// tally for the admin dashboard's summary tiles -- OK/Failed per
+// the relay pool's HadLiveSession() verdict (see
+// tunnel_cat/snc/core/conn_stats.go's EndWildcatSession), plus the combined
+// duration total to derive an average session length.
+type WildcatSessionSummary struct {
+	OK           int64 `json:"ok"`
+	Failed       int64 `json:"failed"`
+	SecondsTotal int64 `json:"seconds_total"`
+}
+
+// CountWildcatSessions returns how many WildCat sessions clients reported
+// ending within window, split by outcome -- summed from client_conn_stats'
+// wildcat_sessions_ok/_failed/_seconds_total delta columns, same window-sum
+// pattern as any other delta metric there (see db_conn_stats.go's schema
+// doc comment on gauge vs delta).
+func (db *DB) CountWildcatSessions(window time.Duration) (WildcatSessionSummary, error) {
+	cutoff := time.Now().Add(-window).Unix()
+	var s WildcatSessionSummary
+	err := db.db.QueryRow(`
+		SELECT COALESCE(SUM(wildcat_sessions_ok),0), COALESCE(SUM(wildcat_sessions_failed),0), COALESCE(SUM(wildcat_seconds_total),0)
+		FROM client_conn_stats WHERE ts >= ?`, cutoff).Scan(&s.OK, &s.Failed, &s.SecondsTotal)
+	return s, err
+}

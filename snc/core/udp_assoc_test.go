@@ -275,7 +275,7 @@ func TestUDPAssocForwardOutbound(t *testing.T) {
 	auth.token = "tok"
 	dialer := NewTunnelDialer(auth)
 
-	sess, err := newUDPAssocSession(sConn, bm, func() *TunnelDialer { return dialer }, false, nil)
+	sess, err := newUDPAssocSession(sConn, bm, func() *TunnelDialer { return dialer }, false, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,13 +306,11 @@ func TestUDPAssocForwardOutbound(t *testing.T) {
 func TestDialerForPrefersRealtimeDialer(t *testing.T) {
 	poolCalled := false
 	poolDialer := newTestDialer(t)
-	client, relay := dialedUDPPair(t)
-	defer client.Close()
-	defer relay.Close()
-	rtRelay := NewUDPRelayConn(relay, "")
-	defer rtRelay.Close()
+	rtConn, cleanup := newTestQUICControlConn(t)
+	defer cleanup()
 	rtAuth := NewAuthenticator("https://example.invalid", "key", "user", "pass")
-	rtDialer := NewUDPRelayDialer(rtRelay, rtAuth)
+	rtDialer := newTunnelDialer(rtAuth, true)
+	rtDialer.quicConn = rtConn
 
 	sess := &udpAssocSession{
 		pick:           func() *TunnelDialer { poolCalled = true; return poolDialer },
@@ -331,18 +329,17 @@ func TestDialerForPrefersRealtimeDialer(t *testing.T) {
 }
 
 // TestDialerForFallsBackWhenRealtimeDialerFailed confirms a failed realtime
-// dialer's udpRelay is never pinned -- the existing pool path takes over
+// dialer's quicConn is never pinned -- the existing pool path takes over
 // automatically, same as if no realtime dialer were configured at all.
 func TestDialerForFallsBackWhenRealtimeDialerFailed(t *testing.T) {
 	poolDialer := newTestDialer(t)
-	client, relay := dialedUDPPair(t)
-	defer client.Close()
-	defer relay.Close()
-	rtRelay := NewUDPRelayConn(relay, "")
-	defer rtRelay.Close()
-	rtRelay.markFailed("test")
+	rtConn, cleanup := newTestQUICControlConn(t)
+	defer cleanup()
+	rtConn.conn.CloseWithError(0, "") //nolint:errcheck // simulate the QUIC connection dying
+	waitQUICFailed(t, rtConn)
 	rtAuth := NewAuthenticator("https://example.invalid", "key", "user", "pass")
-	rtDialer := NewUDPRelayDialer(rtRelay, rtAuth)
+	rtDialer := newTunnelDialer(rtAuth, true)
+	rtDialer.quicConn = rtConn
 
 	sess := &udpAssocSession{
 		pick:           func() *TunnelDialer { return poolDialer },
@@ -354,6 +351,48 @@ func TestDialerForFallsBackWhenRealtimeDialerFailed(t *testing.T) {
 	got := sess.dialerFor(dst)
 	if got != poolDialer {
 		t.Errorf("expected fallback to the pool dialer once the realtime dialer failed, got %v", got)
+	}
+}
+
+// TestDialerForReleasesExistingPinWhenRealtimeDialerFails confirms a
+// destination already pinned to the realtime dialer while it was healthy
+// gets released and re-picked from the pool as soon as the realtime dialer
+// is later found to have failed -- it must not keep returning the stale pin
+// until its own per-destination circuit breaker independently trips.
+// Regression test for the 2026-08-19/20 incident: every destination already
+// pinned to a dead realtime dialer (e.g. every media flow of an in-progress
+// call) had to burn through its own tunnelCBThreshold failures before
+// falling back, so one call could take minutes to fully recover instead of
+// failing over as soon as the shared transport was known dead.
+func TestDialerForReleasesExistingPinWhenRealtimeDialerFails(t *testing.T) {
+	poolDialer := newTestDialer(t)
+	rtConn, cleanup := newTestQUICControlConn(t)
+	defer cleanup()
+	rtAuth := NewAuthenticator("https://example.invalid", "key", "user", "pass")
+	rtDialer := newTunnelDialer(rtAuth, true)
+	rtDialer.quicConn = rtConn
+
+	sess := &udpAssocSession{
+		pick:           func() *TunnelDialer { return poolDialer },
+		realtimeDialer: rtDialer,
+		stats:          make(map[string]*dstStats),
+	}
+
+	dst := &net.UDPAddr{IP: net.IPv4(1, 2, 3, 4), Port: 443}
+
+	// Pin while healthy, exactly like a live call's first packet would.
+	got := sess.dialerFor(dst)
+	if got != rtDialer {
+		t.Fatalf("expected the realtime dialer to be pinned while healthy, got %v", got)
+	}
+
+	// The realtime dialer dies mid-flow (e.g. its ISP path drops QUIC).
+	rtConn.conn.CloseWithError(0, "") //nolint:errcheck
+	waitQUICFailed(t, rtConn)
+
+	got = sess.dialerFor(dst)
+	if got != poolDialer {
+		t.Errorf("expected the stale pin to a failed realtime dialer to be released and re-picked from the pool, got %v", got)
 	}
 }
 

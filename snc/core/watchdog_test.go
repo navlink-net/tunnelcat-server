@@ -88,6 +88,35 @@ func TestIsStuck_AllConnsStalled(t *testing.T) {
 	}
 }
 
+// TestIsStuck_AnyResponseOverridesStalledConns is the regression test for
+// the 2026-08-22 incident this was built to fix: real user report of
+// periodic unmotivated reconnects, logs showing "tunnel: post raw response
+// status=200" every second (control node answering fine) alongside
+// IsStuck=true restarts triggered by one or two specific app streams not
+// getting real payload back within tunnelStuckTimeout. Product direction:
+// the watchdog is the last resort for *total* connectivity loss, not a
+// reaction to one stalled stream while the tunnel is demonstrably alive --
+// so a recent RecordAnyResponse (even an empty ack, which RecordTunnelRecv
+// itself ignores) must short-circuit IsStuck to false regardless of what
+// the per-connection bookkeeping below it says.
+func TestIsStuck_AnyResponseOverridesStalledConns(t *testing.T) {
+	var m TunnelTrafficMonitor
+	m.RecordTunnelSent("a", 10)
+	m.RecordTunnelSent("b", 10)
+	m.mu.Lock()
+	for _, id := range []string{"a", "b"} {
+		m.conns[id].firstSentAt = time.Now().Add(-(tunnelStuckTimeout + time.Second))
+		m.conns[id].lastSentAt = time.Now().Add(-time.Millisecond)
+	}
+	m.mu.Unlock()
+
+	m.RecordAnyResponse()
+
+	if m.IsStuck() {
+		t.Fatal("a recent RecordAnyResponse (control node answering, even with an empty ack) must prevent IsStuck, even with every tracked connection one-sided")
+	}
+}
+
 func TestIsStuck_StaleEntryExpiresViaTTL(t *testing.T) {
 	var m TunnelTrafficMonitor
 	m.RecordTunnelSent("leaked", 10)

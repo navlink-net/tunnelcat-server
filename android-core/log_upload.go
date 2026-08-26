@@ -1,8 +1,9 @@
+//go:build linux
+
 // The Tunnel Cat Project
 // Copyright (C) NavLink, 2026
 // Лицензировано под лицензией Apache 2.0
 
-//go:build linux
 
 package androidcore
 
@@ -37,7 +38,7 @@ const logUploadInterval = 5 * time.Minute
 // 2026-08-11: replaced the old relay-API-channel path (control -> a
 // randomly picked exit -> arbiter). That path was hop-by-hop TLS only, so
 // both control and the exit that happened to relay a given upload saw the
-// full decompressed log content in plaintext -- found after a raw VK OAuth
+// full decompressed log content in plaintext -- found after a raw third-party OAuth
 // token turned up in cleartext in a real user's uploaded logs. Routing
 // through the real tunnel dialer to navlink.net is indistinguishable from
 // any other of the user's own tunneled HTTPS traffic (no separate uTLS/
@@ -57,12 +58,12 @@ func NewLogUploader(nodeID string) *logUploader {
 	return &logUploader{inner: snc.NewLogUploader(nodeID, "android")}
 }
 
-// Start launches the background upload goroutine. Non-blocking. pickDialer
-// matches snc.LogUploader.Start and snc.BananameterProber.Start exactly --
-// see main_linux.go's bananameterProberOnce wiring for the pool.Pick()
-// closure already available at the call site.
-func (lu *logUploader) Start(pickDialer func() *snc.TunnelDialer) {
-	lu.inner.Start(pickDialer)
+// Start launches the background upload goroutine. Non-blocking. pickDialer/
+// wildcatActive match snc.LogUploader.Start and snc.BananameterProber.Start
+// exactly -- see main_linux.go's bananameterProberOnce wiring for the
+// pool.Pick()/wildcatMode closures already available at the call site.
+func (lu *logUploader) Start(pickDialer func() *snc.TunnelDialer, wildcatActive func() bool) {
+	lu.inner.Start(pickDialer, wildcatActive)
 }
 
 func (lu *logUploader) Stop() { lu.inner.Stop() }

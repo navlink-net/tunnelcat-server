@@ -237,6 +237,33 @@ func (u *udpExitHandler) handleUDPRelay(src *net.UDPAddr, reqID uint32, key, pla
 		return
 	}
 
+	// DNS (port 53): resolve via this exit's own egress instead of relaying
+	// on to whatever address the client's OS thinks its DNS server is
+	// (1.1.1.1, hardcoded client-side in dns.go/dns_darwin.go/dns_linux.go).
+	// Every client already tunnels ALL system DNS to that one shared
+	// external resolver -- see snc/core/udp_assoc.go's forwardOutbound doc
+	// comment -- so intercepting it here, exit-side, removes that single
+	// shared external dependency for the whole fleet with zero client
+	// changes: each exit resolves independently via its own upstream list,
+	// no client rebuild/rollout needed. See dnsUpstreams' doc comment for
+	// the fallback order.
+	if dst.Port == 53 {
+		resp, err := forwardDNS(payload)
+		if err != nil {
+			logWarnf("udp-exit: dns forward failed user=%s: %v", username, err)
+			u.sendResponse(src, reqID, 404, nil)
+			return
+		}
+		body, err := buildUploadResponse(key, encodeDatagramBatch([][]byte{resp}))
+		if err != nil {
+			u.sendResponse(src, reqID, 500, nil)
+			return
+		}
+		logDebugf("udp-exit: dns user=%s conn=%.8s q=%d resp=%d", username, connID, len(payload), len(resp))
+		u.sendResponse(src, reqID, 200, body)
+		return
+	}
+
 	poolKey := udpSessionKey{connID: connID, dst: dst.String()}
 	sess, err := u.h.udpPool.getOrCreate(poolKey, dst, username)
 	if err != nil {

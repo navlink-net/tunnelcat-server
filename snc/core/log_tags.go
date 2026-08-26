@@ -42,11 +42,17 @@ var subsystemTags = map[string]binlog.Tag{
 	"nodeid":           binlog.TagTunnel,
 	"decoy":            binlog.TagTunnel,
 
-	// TagSocks5: the local SOCKS5 proxy and its per-connection routing decisions.
+	// TagSocks5: the local SOCKS5 proxy and its per-connection routing
+	// decisions.
 	"socks5": binlog.TagSocks5,
 
 	// TagBypass: country/CIDR direct-dial bypass decisions.
 	"bypass": binlog.TagBypass,
+
+	// TagWildcat: the WildCat covert-transport relay pool/dial subsystem.
+	// Its own package logs via cfg.Logger = core.Log when wired up, so its
+	// log lines land in the same ring buffer as everything else here.
+	"wildcat": binlog.TagWildcat,
 
 	// TagUpload: telemetry/diagnostic upload subsystems.
 	"log-upload":        binlog.TagUpload,

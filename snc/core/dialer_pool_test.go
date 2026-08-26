@@ -66,7 +66,7 @@ func TestPickWeightFloorsAtSoftMinQuality(t *testing.T) {
 
 // TestPickDeprioritizesWithoutExcluding is the end-to-end version of the "sick
 // node stays in the pool but gets picked less" requirement: a struggling
-// dialer (203.0.113.15-style — fine RTT, bad reliability) must be picked
+// dialer (178.104.190.12-style — fine RTT, bad reliability) must be picked
 // noticeably less often than a healthy sibling, but never literally zero.
 func TestPickDeprioritizesWithoutExcluding(t *testing.T) {
 	healthy := newTestDialer(t)

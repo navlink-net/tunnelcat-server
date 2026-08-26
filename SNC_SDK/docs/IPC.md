@@ -1,13 +1,13 @@
 <!--
-Copyright (C) Konstantin Khait & Claude Code
-For IT Partners Solutions and Freedom and Rights
-2026
+The Tunnel Cat Project
+Copyright (C) NavLink, 2026
+Лицензировано под лицензией Apache 2.0
 -->
 
 # tunneld IPC protocol
 
 `cmd/tunneld` is the subprocess every non-iOS SDK adapter (Python, Kotlin,
-C#, Swift-on-macOS) drives. It wraps `tunnelcat-core`'s
+C#, Swift-on-macOS) drives. It wraps `tunnelcat-server`'s
 `Authenticator`/`TunnelDialer`/`SOCKS5Server` behind a duplex,
 newline-delimited JSON protocol on a local Unix domain socket. This
 document is the contract — enough to write a 5th-language adapter without

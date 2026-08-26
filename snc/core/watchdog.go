@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -45,10 +46,51 @@ type connActivity struct {
 type TunnelTrafficMonitor struct {
 	mu    sync.Mutex
 	conns map[string]*connActivity
+
+	// lastAnyRecvAt is the last time ANY control node answered a tunnel POST
+	// with a real HTTP 200, even a pure empty-ack/padding response with no
+	// application payload (RecordTunnelRecv above ignores those on purpose --
+	// they don't prove any specific app stream is progressing). IsStuck uses
+	// this as the actual last line of defense: the watchdog's job is to
+	// catch total connectivity loss when every other recovery mechanism
+	// (per-control retry, pool rebuild, router re-probe) has already failed,
+	// not to react to one specific app stream stalling while the tunnel
+	// itself is demonstrably alive and answering. Explicit product
+	// direction, 2026-08-22: "вочдог — это последний рубеж на случай
+	// полного отказа нормальных механизмов восстановления/фоллбэка".
+	lastAnyRecvAt time.Time
+}
+
+// RecordAnyResponse notes that a control node just answered a tunnel POST
+// with HTTP 200, regardless of whether the (decrypted) body carried any
+// real application payload. Call this on every successful round-trip --
+// see IsStuck's doc comment for why this is tracked separately from the
+// per-connection payload bookkeeping above.
+func (m *TunnelTrafficMonitor) RecordAnyResponse() {
+	m.mu.Lock()
+	m.lastAnyRecvAt = time.Now()
+	m.mu.Unlock()
 }
 
 // TunnelMonitor is the package-level instance shared between tunnel.go and the tray watchdog.
 var TunnelMonitor TunnelTrafficMonitor
+
+// totalBytesSent/totalBytesRecv are process-wide cumulative application
+// payload counters, incremented alongside TunnelTrafficMonitor's per-
+// connection stuck-detection bookkeeping (RecordTunnelSent/RecordTunnelRecv
+// already see every non-zero-length send/recv, so no new call sites are
+// needed anywhere else in the tunnel data path). Atomic, not mutex-guarded,
+// since they're independent counters read far more often (a UI polling once
+// a second) than the mutex-guarded per-connection map is touched.
+var totalBytesSent, totalBytesRecv int64
+
+// TotalBytes returns the cumulative application-payload bytes sent and
+// received by this process since startup -- for a live "uplink/downlink"
+// display, not for billing/stats accuracy (padding/header bytes and
+// bypass-routed traffic are excluded, same as the watchdog's own view).
+func TotalBytes() (sent, recv int64) {
+	return atomic.LoadInt64(&totalBytesSent), atomic.LoadInt64(&totalBytesRecv)
+}
 
 func (m *TunnelTrafficMonitor) entryLocked(connID string) *connActivity {
 	if m.conns == nil {
@@ -70,6 +112,7 @@ func (m *TunnelTrafficMonitor) RecordTunnelSent(connID string, n int) {
 	if n == 0 || connID == "" {
 		return
 	}
+	atomic.AddInt64(&totalBytesSent, int64(n))
 	m.mu.Lock()
 	c := m.entryLocked(connID)
 	if c.firstSentAt.IsZero() {
@@ -85,6 +128,7 @@ func (m *TunnelTrafficMonitor) RecordTunnelRecv(connID string, n int) {
 	if n == 0 || connID == "" {
 		return
 	}
+	atomic.AddInt64(&totalBytesRecv, int64(n))
 	m.mu.Lock()
 	c := m.entryLocked(connID)
 	c.lastGoodRecvAt = time.Now()
@@ -129,6 +173,17 @@ func (m *TunnelTrafficMonitor) IsStuck() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := time.Now()
+	// Last line of defense, not first: a control node answering at all --
+	// even a content-free ack -- proves the tunnel itself is up. A specific
+	// app stream not getting its own real data back within tunnelStuckTimeout
+	// is exactly what the per-connection checks below exist to catch and
+	// recover from at a smaller scope (stream re-open, pool re-probe); it is
+	// not evidence the whole tunnel is dead, and must not trigger a full
+	// process restart on its own while the control channel is demonstrably
+	// alive. See RecordAnyResponse's doc comment.
+	if !m.lastAnyRecvAt.IsZero() && now.Sub(m.lastAnyRecvAt) <= tunnelStuckTimeout {
+		return false
+	}
 	// stuckConns/staleDropped are only collected for the log line below --
 	// negligible cost (this map is small: one entry per currently-open
 	// connection), and having the connID + exact silence duration in the log

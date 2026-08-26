@@ -115,8 +115,11 @@ func (p *webPlane) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveStatic(w, r)
 
 	// ── Partner pages ─────────────────────────────────────────────────────
-	case path == "/partners" && r.Method == http.MethodGet:
-		h.partnersPage(w, r)
+	// GET /partners (bare marketing page) and GET/POST /blackbadger
+	// (landing + inquiry form) migrated to static pages 2026-08-25 -- see
+	// partners_proekt.go's and blackbadger.go's doc comments. Everything
+	// below (proekt/lisinder app-bridge control pages, all downloads)
+	// is NOT part of that migration and is unchanged.
 	case path == "/partners/download/apk" && isGetOrHead(r):
 		h.partnersDownloadApk(w, r)
 	case path == "/partners/proekt" && r.Method == http.MethodGet:
@@ -125,13 +128,6 @@ func (p *webPlane) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		h.partnersLisinder(w, r)
 	case path == "/partners/lisinder/download/apk" && isGetOrHead(r):
 		h.partnersLisinderDownloadApk(w, r)
-
-	// ── Public landing page (real navlink.net traffic never reaches "/" here
-	// -- nginx's catch-all already sends it to the static site) ────────────
-	case path == "/blackbadger" && r.Method == http.MethodGet:
-		h.blackbadgerPage(w, r)
-	case path == "/blackbadger-inquiry" && r.Method == http.MethodPost:
-		h.blackbadgerInquiry(w, r)
 
 	case path == "/api/key/free" && r.Method == http.MethodPost:
 		h.apiKeyFree(w, r)
@@ -153,6 +149,20 @@ func (p *webPlane) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "/api/downloads/info" && r.Method == http.MethodGet:
 		h.apiDownloadsInfo(w, r)
 
+	// ── Account profile (name/country/phone -- gates Dev Program access) ──
+	case path == "/api/profile" && r.Method == http.MethodGet:
+		h.apiProfileGet(w, r)
+	case path == "/api/profile" && r.Method == http.MethodPost:
+		h.apiProfileSave(w, r)
+
+	// ── Tunnel Cat Developers Program (SDK key applications) ──────────────
+	case path == "/api/dev/apply" && r.Method == http.MethodPost:
+		h.apiDevApply(w, r)
+
+	// ── Shared contact/support form endpoint (see contact.go) ──────────────
+	case path == "/api/contact" && r.Method == http.MethodPost:
+		h.apiContact(w, r)
+
 	// ── Apps showcase (apps.navlink.net storefront, public read-only) ──────
 	case path == "/api/apps/meta" && r.Method == http.MethodGet:
 		h.apiAppsMeta(w, r)
@@ -161,10 +171,8 @@ func (p *webPlane) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(path, "/api/apps/") && r.Method == http.MethodGet:
 		h.apiAppGet(w, r)
 
-	case path == "/support" && r.Method == http.MethodGet:
-		h.supportPage(w, r)
-	case path == "/support" && r.Method == http.MethodPost:
-		h.supportSubmit(w, r)
+	// GET/POST /support migrated to a static page + POST /api/contact
+	// 2026-08-25 -- see support.go (deleted) and contact.go.
 	case path == "/download/zip" && isGetOrHead(r):
 		h.downloadZip(w, r)
 	case path == "/download/zip-installer" && isGetOrHead(r):
@@ -175,14 +183,9 @@ func (p *webPlane) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		h.downloadDmg(w, r)
 	case path == "/download/deb" && isGetOrHead(r):
 		h.downloadDeb(w, r)
-	case path == "/ratatosk" && r.Method == http.MethodGet:
-		h.ratatoskPage(w, r)
-	case path == "/ratatosk/privacy" && r.Method == http.MethodGet:
-		h.ratatoskPrivacyPage(w, r)
-	case path == "/ratatosk/support" && r.Method == http.MethodGet:
-		h.ratatoskSupportPage(w, r)
-	case path == "/ratatosk/support" && r.Method == http.MethodPost:
-		h.ratatoskSupportSubmit(w, r)
+	// GET /ratatosk, /ratatosk/privacy, GET+POST /ratatosk/support migrated
+	// to static pages + POST /api/contact 2026-08-25 -- downloads below
+	// are unchanged.
 	case path == "/ratatosk/download/apk" && isGetOrHead(r):
 		h.ratatoskDownloadApk(w, r)
 	case path == "/ratatosk/download/zip" && isGetOrHead(r):
@@ -217,6 +220,18 @@ func (p *webPlane) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		h.requireAdmin(h.adminPendingPage)(w, r)
 	case path == "/admin/infra" && r.Method == http.MethodGet:
 		h.requireAdmin(h.adminInfraPage)(w, r)
+	// apiAdminNodeList is also registered on the :443 node-facing switch
+	// (handler.go) for historical reasons, but admin_infra.html's own
+	// fetch('/api/admin/nodes') call is same-origin against wherever the
+	// page was loaded from -- and the only way a browser reaches the admin
+	// UI at all is through this :8080 web plane (via the navlink.net nginx
+	// proxy; :443 is the node-facing tunnel protocol port and isn't behind
+	// a browser-friendly login). Without this case, that fetch fell through
+	// to the default handleClientRequest JSON-RPC dispatcher and returned
+	// "unknown command" -- confirmed live 2026-08-20, the node list on
+	// /admin/infra never actually loaded through the public proxy.
+	case path == "/api/admin/nodes" && r.Method == http.MethodGet:
+		h.requireAdmin(h.apiAdminNodeList)(w, r)
 	case strings.HasPrefix(path, "/admin/nodes/") && r.Method == http.MethodPost:
 		h.requireAdmin(h.adminNodeAction)(w, r)
 	case path == "/admin/apps" && r.Method == http.MethodGet:
@@ -307,6 +322,20 @@ func (p *webPlane) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		h.requireAdmin(h.apiAdminUsersCSV)(w, r)
 	case path == "/admin/api/users/pending" && r.Method == http.MethodGet:
 		h.requireAdmin(h.apiAdminPendingUsers)(w, r)
+	case path == "/admin/api/users/never-connected" && r.Method == http.MethodGet:
+		h.requireAdmin(h.apiAdminNeverConnected)(w, r)
+
+	// ── Tunnel Cat Developers Program admin review ─────────────────────────
+	case path == "/admin/api/dev-apps" && r.Method == http.MethodGet:
+		h.requireAdmin(h.apiAdminDevAppsList)(w, r)
+	case strings.HasPrefix(path, "/admin/api/dev-apps/") && strings.HasSuffix(path, "/approve") && r.Method == http.MethodPost:
+		h.requireAdmin(h.apiAdminDevAppApprove)(w, r)
+	case strings.HasPrefix(path, "/admin/api/dev-apps/") && strings.HasSuffix(path, "/reject") && r.Method == http.MethodPost:
+		h.requireAdmin(h.apiAdminDevAppReject)(w, r)
+	case strings.HasPrefix(path, "/admin/api/dev-apps/") && strings.HasSuffix(path, "/revoke") && r.Method == http.MethodPost:
+		h.requireAdmin(h.apiAdminDevAppRevoke)(w, r)
+	case path == "/admin/dev-apps" && r.Method == http.MethodGet:
+		h.requireAdmin(h.adminDevAppsPage)(w, r)
 	case strings.HasPrefix(path, "/admin/api/users/") && strings.HasSuffix(path, "/confirm-email") && r.Method == http.MethodPost:
 		h.requireAdmin(h.apiAdminConfirmEmail)(w, r)
 	case strings.HasPrefix(path, "/admin/api/users/") && strings.HasSuffix(path, "/conn-stats") && r.Method == http.MethodGet:
@@ -341,6 +370,17 @@ func (p *webPlane) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		h.requireAdmin(h.apiAdminNodeRegister)(w, r)
 	case strings.HasPrefix(path, "/api/admin/node/") && strings.HasSuffix(path, "/approve") && r.Method == http.MethodPost:
 		h.requireAdmin(h.apiAdminNodeApprove)(w, r)
+	// delete/update, same gap as apiAdminNodeList above -- admin_infra.html's
+	// own edit/delete buttons call these and were equally broken through the
+	// public proxy. decommission (POST .../decommission) is intentionally
+	// NOT duplicated here: nothing under templates/ calls it: the only
+	// caller is tools/yc_rotate.py's rotate-node, which always talks to the
+	// arbiter's own IP:443 directly (see that script's own doc comment),
+	// never through navlink.net.
+	case strings.HasPrefix(path, "/api/admin/node/") && strings.HasSuffix(path, "/delete") && r.Method == http.MethodPost:
+		h.requireAdmin(h.apiAdminNodeDelete)(w, r)
+	case strings.HasPrefix(path, "/api/admin/node/") && strings.HasSuffix(path, "/update") && r.Method == http.MethodPost:
+		h.requireAdmin(h.apiAdminNodeUpdate)(w, r)
 
 	// ── Node deploy status ────────────────────────────────────────────────────
 	case strings.HasPrefix(path, "/api/nodes/") && strings.HasSuffix(path, "/deploy-status") && r.Method == http.MethodGet:
@@ -390,6 +430,11 @@ func (p *webPlane) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		// page that needs a real 401 JSON response for logged-out visitors,
 		// not an HTML redirect to /login.
 		h.myApiKeysList(w, r)
+	case path == "/my/api/whoami" && r.Method == http.MethodGet:
+		// Same reasoning as /my/api/keys above -- called server-to-server by
+		// navmail (tunnel_cat/mailapi) with a forwarded session cookie, needs
+		// a plain 401, not a redirect.
+		h.myApiWhoami(w, r)
 	case strings.HasPrefix(path, "/my/api/keys/") && strings.HasSuffix(path, "/download") && r.Method == http.MethodGet:
 		// Not requireMySession — same JSON-401-not-HTML-redirect reasoning as
 		// /my/api/keys above; the handler already does its own session check.
@@ -444,6 +489,9 @@ func (p *webPlane) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "/admin/ipv6/toggle" && r.Method == http.MethodPost:
 		h.requireAdmin(h.adminIPv6Toggle)(w, r)
 
+	case path == "/admin/torrent/toggle" && r.Method == http.MethodPost:
+		h.requireAdmin(h.adminTorrentToggle)(w, r)
+
 	case path == "/admin/loadfactor/update" && r.Method == http.MethodPost:
 		h.requireAdmin(h.adminLoadFactorUpdate)(w, r)
 
@@ -497,6 +545,9 @@ func (p *webPlane) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	// manifest_client_api.go.
 	case path == "/api/manifest/client" && r.Method == http.MethodGet:
 		h.apiManifestClientFetch(w, r)
+
+	case path == "/api/manifest/topup" && r.Method == http.MethodPost:
+		h.apiManifestTopup(w, r)
 
 	// ── Live account-status check (client) ──────────────────────────────────
 	// Same dual-listener trap as the cases above -- clients only ever reach

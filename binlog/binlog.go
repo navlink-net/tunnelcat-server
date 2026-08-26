@@ -50,9 +50,10 @@ const (
 	TagTunnel  Tag = 1 // dataplane: tunnel, router, relay, nat, TUN, socks5-adjacent routing
 	TagSocks5  Tag = 2 // socks5: local proxy + per-connection routing decisions
 	TagBypass  Tag = 3 // bypass: country/CIDR direct-dial bypass decisions
-	TagUpload  Tag = 4 // log-upload, conn-stats-upload, bananameter: telemetry uploads
-	TagUpdate  Tag = 5 // updater: client self-update
-	TagSystem  Tag = 6 // log, watchdog, procfilter, admin-status: process/lifecycle housekeeping
+	TagWildcat Tag = 4 // WildCat: covert-transport relay pool/dial
+	TagUpload  Tag = 5 // log-upload, conn-stats-upload, bananameter: telemetry uploads
+	TagUpdate  Tag = 6 // updater: client self-update
+	TagSystem  Tag = 7 // log, watchdog, procfilter, admin-status: process/lifecycle housekeeping
 
 	// TagControlDead is a structured stat record, not a log line: payload is
 	// exactly the unreachable control's address (host:port), nothing else.
@@ -63,7 +64,7 @@ const (
 	// entry without ever decompressing the (possibly large, untrusted-size)
 	// main log content. First user of this pattern; any future stat gets
 	// its own tag the same way.
-	TagControlDead Tag = 7
+	TagControlDead Tag = 8
 )
 
 // TagNames maps each known tag to a short display name, for tooling
@@ -73,6 +74,7 @@ var TagNames = map[Tag]string{
 	TagTunnel:      "tunnel",
 	TagSocks5:      "socks5",
 	TagBypass:      "bypass",
+	TagWildcat:     "wildcat",
 	TagUpload:      "upload",
 	TagUpdate:      "update",
 	TagSystem:      "system",
@@ -144,6 +146,45 @@ func AppendRecord(dst []byte, tag Tag, payload []byte) []byte {
 	return dst
 }
 
+// PayloadFormat is a one-byte marker at the start of a record's payload,
+// added 2026-08-18 to let structured CBOR event records coexist with the
+// original free-text payloads in the same stream without touching
+// already-written history. binlog itself stays domain-agnostic about what
+// FormatStructured actually contains (see tunnel_cat/logevent for that) --
+// it only owns the marker byte convention itself, the same way it owns Tag
+// without knowing what a tag's records mean.
+//
+// Records written before this marker existed have no marker byte at all --
+// their payload starts directly with the formatted text (always a printable
+// ASCII byte, e.g. a decimal digit for the leading date). A decoder tells
+// the two eras apart the same way this package's own writers do: a leading
+// byte of FormatText or FormatStructured (both non-printable control bytes,
+// never the first byte of any log line ever printed) marks a new-style
+// payload; anything else means an old-style payload with no marker,
+// implicitly text. See HasFormatMarker.
+type PayloadFormat byte
+
+const (
+	FormatText       PayloadFormat = 0x00 // rest of payload is plain text (unchanged behavior)
+	FormatStructured PayloadFormat = 0x01 // rest of payload is [4B event ID][CBOR attribute map]
+)
+
+// HasFormatMarker reports whether payload's first byte is a recognized
+// PayloadFormat marker (true) or payload predates the marker convention and
+// is implicitly plain text in full (false) -- see PayloadFormat's doc
+// comment for why this distinction is unambiguous in practice.
+func HasFormatMarker(payload []byte) (format PayloadFormat, hasMarker bool) {
+	if len(payload) == 0 {
+		return 0, false
+	}
+	switch PayloadFormat(payload[0]) {
+	case FormatText, FormatStructured:
+		return PayloadFormat(payload[0]), true
+	default:
+		return 0, false
+	}
+}
+
 // Record is one decoded, validated binlog record.
 type Record struct {
 	Tag     Tag
@@ -180,16 +221,33 @@ func DecodeRecords(data []byte) (records []Record, corrupt int) {
 }
 
 // Decode parses a binlog-framed buffer and returns the concatenation of all
-// valid records' payloads regardless of tag (which, for records produced by
-// snc/core's ring buffer, reconstitutes byte-identical plain-text log
-// content), plus the same corrupt count as DecodeRecords. This is what
-// snc-arbiter's upload dispatcher uses -- it doesn't filter by topic, it
-// just needs the original text back.
+// valid *text* records' payloads regardless of tag (which, for records
+// produced by snc/core's ring buffer, reconstitutes byte-identical
+// plain-text log content), plus the same corrupt count as DecodeRecords.
+// This is what snc-arbiter's upload dispatcher uses -- it doesn't filter by
+// topic, it just needs the original text back.
+//
+// FormatStructured records are skipped here, not corrupted-in: this
+// function's whole contract is "give me back the text", and a CBOR event
+// record dumped raw into that stream would be unreadable binary garbage in
+// the middle of otherwise-plain-text output. A caller that wants structured
+// events too should use DecodeRecords directly and handle FormatStructured
+// payloads itself (see tunnel_cat/logevent for that decode path) -- Decode
+// stays the "just get me the plain text, same as before this format even
+// existed" convenience path.
 func Decode(data []byte) (text []byte, corrupt int) {
 	records, corrupt := DecodeRecords(data)
 	var out bytes.Buffer
 	for _, r := range records {
-		out.Write(r.Payload)
+		format, hasMarker := HasFormatMarker(r.Payload)
+		switch {
+		case !hasMarker:
+			out.Write(r.Payload) // pre-marker record: payload IS the text, in full
+		case format == FormatText:
+			out.Write(r.Payload[1:]) // strip the marker byte, rest is text
+		case format == FormatStructured:
+			// skip -- not text, see doc comment above
+		}
 	}
 	return out.Bytes(), corrupt
 }

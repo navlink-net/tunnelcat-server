@@ -33,8 +33,8 @@ func (h *handler) apiAdminNodeRegister(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	if req.Type != "control" && req.Type != "exit" {
-		jsonErr(w, "type must be 'control' or 'exit'", http.StatusBadRequest)
+	if req.Type != "control" && req.Type != "exit" && req.Type != "navlink_mirror" {
+		jsonErr(w, "type must be 'control', 'exit', or 'navlink_mirror'", http.StatusBadRequest)
 		return
 	}
 
@@ -356,6 +356,16 @@ func (h *handler) apiAdminNodeList(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]nodeOut, 0, len(all))
 	for _, n := range all {
+		// IsOnline() only checks heartbeat freshness, not status -- fine for
+		// every other caller (they all pre-filter to approved/suspended
+		// nodes upstream), but this endpoint returns EVERY status including
+		// decommissioned/rejected. Without this guard a decommissioned node
+		// whose service kept sending heartbeats right up to the moment it
+		// was torn down could show a green "online" dot in the dashboard
+		// next to the word "decommissioned" for up to heartbeatTTL after
+		// teardown -- confirmed live 2026-08-19 during a Yandex node
+		// destroy+recreate rotation.
+		online := (n.Status == "approved" || n.Status == "suspended") && n.IsOnline()
 		out = append(out, nodeOut{
 			ID:          n.ID,
 			Type:        n.Type,
@@ -366,7 +376,7 @@ func (h *handler) apiAdminNodeList(w http.ResponseWriter, r *http.Request) {
 			Description: n.Description,
 			Location:    n.Location,
 			Provider:    n.Provider,
-			Online:      n.IsOnline(),
+			Online:      online,
 			RTTms:       n.RTTms,
 			Pinned:      n.Pinned,
 			NodeUID:             n.NodeUID,

@@ -1,24 +1,29 @@
 <!--
-Copyright (C) Konstantin Khait & Claude Code
-For IT Partners Solutions and Freedom and Rights
-2026
+The Tunnel Cat Project
+Copyright (C) NavLink, 2026
+Лицензировано под лицензией Apache 2.0
 -->
 
 # tunnelcat-sdk
 
 Build your own client on top of
-[tunnelcat-core](https://github.com/kostiakhait/tunnelcat-core): language
+[tunnelcat-server](https://github.com/navlink-net/tunnelcat-server): language
 adapters (Python, Kotlin, C#, Swift) that spawn a small local daemon and
 drive it over JSON-RPC, plus a mock control/exit server so you can develop
 and test without any real credentials or network access.
 
-**Full hypertext documentation:** [tunnelcat.navlink.net/docs/sdk](https://tunnelcat.navlink.net/docs/sdk/index.html)
-— architecture, the IPC and wire protocol contracts, and a complete API reference for every language adapter.
-Also published standalone as [navlink-net/tunnelcat-sdk](https://github.com/navlink-net/tunnelcat-sdk).
-
 ## Try it in 30 seconds
 
+`cmd/tunneld` and `cmd/mockserver` depend on
+[`tunnelcat-server`](https://github.com/navlink-net/tunnelcat-server)'s
+`snc/core` package via a local `replace` in `go.mod`, so clone that repo as a
+sibling directory **literally named `tunnel_cat`** first:
+
 ```sh
+git clone https://github.com/navlink-net/tunnelcat-server tunnel_cat
+git clone https://github.com/navlink-net/tunnelcat-sdk
+cd tunnelcat-sdk
+
 go build -o tunneld ./cmd/tunneld
 go run ./cmd/mockserver &
 
@@ -34,11 +39,11 @@ connect→status→disconnect flow every adapter follows. Swap `sdk/csharp` for
 ## Layout
 
 - **`cmd/tunneld`** — the subprocess every non-iOS adapter drives: wraps
-  tunnelcat-core's `Authenticator`/`TunnelDialer`/`SOCKS5Server` behind a
+  tunnelcat-server's `Authenticator`/`TunnelDialer`/`SOCKS5Server` behind a
   duplex JSON-RPC protocol over a local Unix domain socket. See
   [`docs/IPC.md`](docs/IPC.md).
 - **`cmd/mockserver`** — a local mock control/exit implementing just enough
-  of tunnelcat-core's wire protocol (see [`docs/PROTOCOL.md`](docs/PROTOCOL.md))
+  of tunnelcat-server's wire protocol (see [`docs/PROTOCOL.md`](docs/PROTOCOL.md))
   to test connect/disconnect/data-relay with zero real credentials.
 - **`cmd/lib-ios`** — iOS-only cgo `c-archive` export (iOS forbids
   subprocesses, so this is linked directly into an app/extension instead of
@@ -63,4 +68,4 @@ Kotlin/Swift toolchain installed) — see each `docs/sdk/*.md` for specifics.
 
 ## License
 
-MIT, matching tunnelcat-core — see [LICENSE](LICENSE).
+Apache License 2.0 — see [LICENSE](LICENSE).

@@ -35,7 +35,7 @@ var tables = []string{
 	"subscription_plans", "system_settings",
 	"keys", "subscriptions",
 	"promo_codes", "promo_uses",
-	"notifications",
+	"notifications", "wlwtp_ports",
 	"node_traffic", "node_counter_state",
 	"app_listings", "app_listing_downloads",
 	"bananameter_results",

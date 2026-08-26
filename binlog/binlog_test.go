@@ -37,7 +37,7 @@ func TestRoundTrip(t *testing.T) {
 func TestDecodeRecordsPreservesTags(t *testing.T) {
 	var buf []byte
 	buf = AppendRecord(buf, TagSocks5, []byte("socks5 line\n"))
-	buf = AppendRecord(buf, TagBypass, []byte("bypass line\n"))
+	buf = AppendRecord(buf, TagWildcat, []byte("wildcat line\n"))
 	buf = AppendRecord(buf, TagUpload, []byte("upload line\n"))
 
 	records, corrupt := DecodeRecords(buf)
@@ -46,7 +46,7 @@ func TestDecodeRecordsPreservesTags(t *testing.T) {
 	}
 	want := []Record{
 		{Tag: TagSocks5, Payload: []byte("socks5 line\n")},
-		{Tag: TagBypass, Payload: []byte("bypass line\n")},
+		{Tag: TagWildcat, Payload: []byte("wildcat line\n")},
 		{Tag: TagUpload, Payload: []byte("upload line\n")},
 	}
 	if len(records) != len(want) {
@@ -61,7 +61,7 @@ func TestDecodeRecordsPreservesTags(t *testing.T) {
 	// Decode() (used by the arbiter dispatcher) ignores tags and just
 	// concatenates every payload in order, regardless of topic.
 	text, _ := Decode(buf)
-	wantText := "socks5 line\nbypass line\nupload line\n"
+	wantText := "socks5 line\nwildcat line\nupload line\n"
 	if string(text) != wantText {
 		t.Fatalf("Decode() = %q, want %q", text, wantText)
 	}

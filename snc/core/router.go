@@ -15,6 +15,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"tunnel_cat/binlog"
+	"tunnel_cat/logevent"
 )
 
 // Router selects the best path through available relay nodes to the control.
@@ -84,14 +87,20 @@ const (
 )
 
 // Pool size bounds for the set of controls BuildPaths considers "qualifying".
-// minPoolControls: floor for redundancy (matches the client-side top-up floor
+// MinPoolControls: floor for redundancy (matches the client-side top-up floor
 // applied again after e2e probing in each main_*.go).
-// maxPoolControls: ceiling so path generation (O(controls × relays^3)) can't
+// MaxPoolControls: ceiling so path generation (O(controls × relays^3)) can't
 // blow up and so traffic doesn't spread so thin per control that RTT/fail-ratio
 // stats never accumulate meaningful sample counts.
-const (
-	minPoolControls = 5
-	maxPoolControls = 12
+//
+// Exported (and vars, not consts) so a platform can scale them to device
+// capability -- see Android's CoreProcess.kt, which derives both from device
+// RAM the same way it already derives GOMEMLIMIT/ChanDepth, and passes them
+// via SNC_MIN_POOL_CONTROLS/SNC_MAX_POOL_CONTROLS. No other platform's
+// main_*.go sets those env vars, so this default (5/12) is unchanged for them.
+var (
+	MinPoolControls = 5
+	MaxPoolControls = 12
 )
 
 // controlTransport records which protocol the router detected for a control node.
@@ -99,7 +108,12 @@ type controlTransport uint8
 
 const (
 	transportTCP controlTransport = 0 // default; TCP data-plane probe succeeded
-	transportUDP controlTransport = 1 // TCP failed, UDP /p/v1/ping succeeded
+	// transportUDP: TCP failed, QUIC handshake succeeded. Named for the old
+	// SNCU-over-UDP fallback this replaced; kept as "udp" throughout the
+	// public API (ControlTransportName, hook names) since every platform's
+	// main_*.go already keys off that string — only the transport underneath
+	// changed, not the label.
+	transportUDP controlTransport = 1
 )
 
 // routerNode is an internal node representation with measurement state.
@@ -169,13 +183,14 @@ func (r *Router) MarkControlDataDead(addr string, until time.Time) {
 	r.mu.Lock()
 	r.dataDead[addr] = until
 	r.mu.Unlock()
-	Log.Printf("router: control %s marked data-dead until %s", addr, until.Format(time.RFC3339))
+	logevent.Emit(binlog.TagTunnel, logevent.EventRouterControlMarkedDead,
+		logevent.Str(logevent.AttrAddr, addr),
+		logevent.Str(logevent.AttrUntil, until.Format(time.RFC3339)))
 }
 
 // MarkControlAlive refreshes the liveness timestamp for the control at addr.
-// Callers that have their own independent evidence a control is reachable
-// (e.g. a successful auth against it) should call this directly instead of
-// relying solely on ProbeDataPlane's periodic TCP probing -- otherwise
+// Direct TCP probing (ProbeDataPlane) is skipped entirely in WildCat mode —
+// WildCat relay auth success is the real liveness signal there — so without this,
 // LastSeen is stamped once at bootstrap and goes stale after 30s, making
 // alive() (and therefore BuildPaths/QualifyingControlAddrs) falsely report
 // every control as unreachable on the very next rebuild.
@@ -236,10 +251,11 @@ func (r *Router) LoadFactorFor(addr string) float64 {
 	return 0
 }
 
-// MarkUDPDataFailed forces addr to TCP-only for 5 minutes.  ProbeDataPlane will
-// skip the UDP fallback probe during this window so a broken UDP channel is not
-// re-created immediately.  After the TTL, probing resumes: if UDP has recovered
-// the control reverts to transportUDP; if still broken, the TTL is extended.
+// MarkUDPDataFailed forces addr to TCP-only for 5 minutes, e.g. after a live
+// QUIC send failure even though the last RTT probe looked fine.  ProbeDataPlane
+// skips the QUIC probe for addr during this window so a broken QUIC path is not
+// immediately re-selected.  After the TTL, probing resumes and QUIC competes
+// on RTT again like any other transport; if still broken, the TTL is extended.
 func (r *Router) MarkUDPDataFailed(addr string) {
 	r.mu.Lock()
 	// Downgrade transport immediately so NewControlDialer returns a TCP dialer.
@@ -251,7 +267,8 @@ func (r *Router) MarkUDPDataFailed(addr string) {
 	}
 	r.udpDataFailed[addr] = time.Now().Add(5 * time.Minute)
 	r.mu.Unlock()
-	Log.Printf("router: control %s UDP data-plane failed — downgraded to TCP for 5 min", addr)
+	logevent.Emit(binlog.TagTunnel, logevent.EventRouterUdpDowngraded,
+		logevent.Str(logevent.AttrAddr, addr))
 }
 
 // RegisterUDPPeer registers a live UDP relay connection to a peer identified
@@ -330,6 +347,29 @@ func (r *Router) SetControls(addrs []string) {
 
 // SetControl sets a single control node. Compatibility shim; prefer SetControls.
 func (r *Router) SetControl(addr string) { r.SetControls([]string{addr}) }
+
+// AddControl appends a single control node to the existing list, unlike
+// SetControls/SetControlsWithRegions which replace it wholesale. Used by
+// TopupClient (manifest_topup.go) to fold in one already-probed node at a
+// time without disturbing the rest of the router's state. No-op if addr is
+// already known. Call BuildPaths after, same as SetControls.
+func (r *Router) AddControl(addr string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	norm := normaliseAddr(addr)
+	for _, c := range r.controls {
+		if c.Addr == norm {
+			return
+		}
+	}
+	r.controls = append(r.controls, &routerNode{
+		ID:         addr,
+		Addr:       norm,
+		OperatorID: addr,
+		LastSeen:   time.Now(),
+		IsAlive:    true,
+	})
+}
 
 // SetControlsWithRegions sets the control list and annotates each address with
 // its ISO country code from the regions map (addr → cc).  Use this instead of
@@ -439,13 +479,18 @@ func (r *Router) MarkRelayAlive(id string) {
 }
 
 // ProbeDataPlane probes the data plane health of control nodes:
-//   - Controls: HTTP GET /p/v1/ping via the uTLS ChRelayAPI channel (H1).
-//     A non-empty response body confirms the data plane is intact — a TCP-only
-//     probe would pass even when DPI strips HTTP bodies.
+//   - Controls: HTTP GET /p/v1/ping via the uTLS ChRelayAPI channel (H1) over
+//     TCP, and the same ping over a real QUIC handshake, run concurrently.
+//     A non-empty response body confirms the data plane is intact — a
+//     TCP-only probe would pass even when DPI strips HTTP bodies.
+//     Whichever transport answers with the lower RTT is recorded as the
+//     node's transport for routing purposes — QUIC is a real alternative
+//     dialer chosen on RTT merit, not a fallback only tried when TCP fails.
 //   - Relays are NOT probed via TCP (they are NAT-behind client nodes, not servers).
 //     Relay liveness is determined by RegisterUDPPeer / MarkRelayAlive only.
 //
-// Nodes that fail are marked !IsAlive; successful probes update RTT.
+// Nodes that fail both probes are marked !IsAlive; a node alive on only one
+// transport is recorded with that transport's RTT.
 // Call this instead of MeasureRTTs whenever reliable data-plane detection matters.
 func (r *Router) ProbeDataPlane(timeout time.Duration) {
 	r.mu.Lock()
@@ -455,49 +500,56 @@ func (r *Router) ProbeDataPlane(timeout time.Duration) {
 
 	var wg sync.WaitGroup
 
-	// Control probe: HTTP GET /p/v1/ping (TCP), then UDP fallback.
-	// TCP probe confirms both connectivity and data-plane integrity (non-empty body).
-	// If TCP fails, try a UDP SNCU ping — covers DPI body-stripping and TCP blocking.
 	for _, n := range controls {
 		wg.Add(1)
 		go func(n *routerNode) {
 			defer wg.Done()
-			rtt, ok := probeControlPing(n.Addr, timeout)
-			if ok {
-				r.mu.Lock()
-				n.RTT = rtt
+
+			r.mu.Lock()
+			quicSuppressed := time.Now().Before(r.udpDataFailed[n.Addr])
+			r.mu.Unlock()
+
+			var tcpWG sync.WaitGroup
+			var tcpRTT, quicRTT time.Duration
+			var tcpOK, quicOK bool
+
+			tcpWG.Add(1)
+			go func() {
+				defer tcpWG.Done()
+				tcpRTT, tcpOK = probeControlPing(n.Addr, timeout)
+			}()
+			if !quicSuppressed {
+				tcpWG.Add(1)
+				go func() {
+					defer tcpWG.Done()
+					quicRTT, quicOK = ProbeControlQUIC(n.Addr, timeout)
+				}()
+			}
+			tcpWG.Wait()
+
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			switch {
+			case tcpOK && (!quicOK || tcpRTT <= quicRTT):
+				n.RTT = tcpRTT
 				n.IsAlive = true
 				n.LastSeen = time.Now()
 				n.transport = transportTCP
-				r.mu.Unlock()
-				return
-			}
-			// TCP probe failed — try UDP unless it was recently marked as failed.
-			r.mu.Lock()
-			udpSuppressed := time.Now().Before(r.udpDataFailed[n.Addr])
-			r.mu.Unlock()
-			if udpSuppressed {
-				r.mu.Lock()
-				n.IsAlive = false
-				n.transport = transportTCP
-				r.mu.Unlock()
-				Log.Printf("router: control %s TCP failed, UDP suppressed (data-failed TTL active)", n.Addr)
-				return
-			}
-			udpRTT, udpOK := probeControlUDP(n.Addr, timeout)
-			r.mu.Lock()
-			if udpOK {
-				n.RTT = udpRTT
+			case quicOK:
+				n.RTT = quicRTT
 				n.IsAlive = true
 				n.LastSeen = time.Now()
 				n.transport = transportUDP
-				Log.Printf("router: control %s TCP blocked, UDP alive rtt=%s", n.Addr, udpRTT)
-			} else {
+				Log.Printf("router: control %s QUIC faster/only-alive rtt=%s (tcp ok=%v)", n.Addr, quicRTT, tcpOK)
+			default:
 				n.IsAlive = false
 				n.transport = transportTCP // reset to default
-				Log.Printf("router: control %s TCP+UDP both failed", n.Addr)
+				if quicSuppressed {
+					Log.Printf("router: control %s TCP failed, QUIC suppressed (data-failed TTL active)", n.Addr)
+				} else {
+					Log.Printf("router: control %s TCP+QUIC both failed", n.Addr)
+				}
 			}
-			r.mu.Unlock()
 		}(n)
 	}
 
@@ -600,31 +652,23 @@ func (r *Router) UpdateControlRTT(addr string, rtt time.Duration) {
 	}
 }
 
-// udpOnlyPenalty is added to the effective RTT of controls whose TCP path is
-// blocked (transport==transportUDP).  BuildPaths already excludes them when
-// any TCP-capable control is alive, but this penalty ensures they sort last in
-// the DialerPool during the window between probe runs.
-const udpOnlyPenalty = 30 * time.Second
-
-// ControlRTT returns the effective RTT for addr including any flap penalty and
-// a large UDP-only penalty, or 0 if the address is unknown. Used to sort pool
-// dialers by effective latency so dialers[0] is always the best available control.
+// ControlRTT returns the effective RTT for addr including any flap penalty,
+// or 0 if the address is unknown. Used to sort pool dialers by effective
+// latency so dialers[0] is always the best available control. QUIC-transported
+// controls (transportUDP) are not penalized relative to TCP ones — since
+// ProbeDataPlane already picks whichever transport measured the lower RTT for
+// each node, n.RTT is directly comparable across transports as-is.
 func (r *Router) ControlRTT(addr string) time.Duration {
 	r.mu.Lock()
 	var rtt time.Duration
-	var isUDP bool
 	for _, n := range r.controls {
 		if n.Addr == addr {
 			rtt = n.RTT
-			isUDP = n.transport == transportUDP
 			break
 		}
 	}
 	r.mu.Unlock()
 	penalty := time.Duration(r.flapPenaltyOf(addr) * float64(time.Millisecond))
-	if isUDP {
-		penalty += udpOnlyPenalty
-	}
 	return rtt + penalty
 }
 
@@ -752,32 +796,11 @@ func (r *Router) BuildPaths() {
 			outOfCountry = nil // already all included
 		}
 	}
-	// TCP-preference hard filter: if any alive control is reachable via TCP,
-	// exclude UDP-only (TCP-blocked) controls entirely.  UDP transport is a
-	// last resort used only when every known control has TCP blocked.
-	var tcpAlive []*routerNode
-	for _, c := range aliveControls {
-		if c.transport == transportTCP {
-			tcpAlive = append(tcpAlive, c)
-		}
-	}
-	if len(tcpAlive) > 0 {
-		if len(tcpAlive) < len(aliveControls) {
-			Log.Printf("router: excluded %d UDP-only control(s) — %d TCP-capable available",
-				len(aliveControls)-len(tcpAlive), len(tcpAlive))
-		}
-		aliveControls = tcpAlive
-	} else {
-		Log.Printf("router: no TCP-capable controls — using all %d (UDP-only fallback)", len(aliveControls))
-	}
-	// Also apply TCP filter to out-of-country candidates.
-	var tcpOutOfCountry []*routerNode
-	for _, c := range outOfCountry {
-		if c.transport == transportTCP {
-			tcpOutOfCountry = append(tcpOutOfCountry, c)
-		}
-	}
-	outOfCountry = tcpOutOfCountry
+	// QUIC (transportUDP) is a real alternative transport now, chosen by
+	// ProbeDataPlane on RTT merit against TCP for each control individually —
+	// no hard TCP-preference filter here. A control's transport only affects
+	// which TunnelDialer NewControlDialer builds for it; pool ordering is by
+	// ControlRTT (which is directly comparable across transports) alone.
 
 	if len(aliveControls) == 0 {
 		r.paths = nil
@@ -785,30 +808,30 @@ func (r *Router) BuildPaths() {
 		return
 	}
 
-	// Pool size bounds: at least minPoolControls for redundancy (losing one
+	// Pool size bounds: at least MinPoolControls for redundancy (losing one
 	// control shouldn't ever leave a client down to a single point of
-	// failure), at most maxPoolControls so path-generation below (which is
+	// failure), at most MaxPoolControls so path-generation below (which is
 	// O(controls × relays^3)) can't blow up and so traffic isn't spread so
 	// thin across controls that per-control RTT stats never accumulate
 	// meaningful sample counts. Mirrors the client-side 5..12 bound applied
 	// again after e2e probing in each main_*.go.
-	if len(aliveControls) < minPoolControls && len(outOfCountry) > 0 {
+	if len(aliveControls) < MinPoolControls && len(outOfCountry) > 0 {
 		sort.Slice(outOfCountry, func(i, j int) bool {
 			return r.nodeScore(outOfCountry[i]) < r.nodeScore(outOfCountry[j])
 		})
-		need := minPoolControls - len(aliveControls)
+		need := MinPoolControls - len(aliveControls)
 		if need > len(outOfCountry) {
 			need = len(outOfCountry)
 		}
-		Log.Printf("router: pool < %d after filtering — supplementing with %d out-of-country control(s)", minPoolControls, need)
+		Log.Printf("router: pool < %d after filtering — supplementing with %d out-of-country control(s)", MinPoolControls, need)
 		aliveControls = append(aliveControls, outOfCountry[:need]...)
 	}
-	if len(aliveControls) > maxPoolControls {
+	if len(aliveControls) > MaxPoolControls {
 		sort.Slice(aliveControls, func(i, j int) bool {
 			return r.nodeScore(aliveControls[i]) < r.nodeScore(aliveControls[j])
 		})
-		Log.Printf("router: %d controls after filtering — capping to best %d", len(aliveControls), maxPoolControls)
-		aliveControls = aliveControls[:maxPoolControls]
+		Log.Printf("router: %d controls after filtering — capping to best %d", len(aliveControls), MaxPoolControls)
+		aliveControls = aliveControls[:MaxPoolControls]
 	}
 
 	// R_best: alive relays within 30 s, sorted by effective RTT+loss, top 20.
@@ -955,13 +978,19 @@ func (r *Router) BuildPaths() {
 			best = p.Score
 		}
 	}
-	Log.Printf("router: %d paths built, best=%.0fms", len(r.paths), best)
+	logevent.Emit(binlog.TagTunnel, logevent.EventRouterPathsBuilt,
+		logevent.Int(logevent.AttrCount, int64(len(r.paths))),
+		logevent.Int(logevent.AttrBestMs, int64(best)))
 	for i, p := range r.paths {
 		tag := "direct"
 		if len(p.Relays) > 0 {
 			tag = p.Relays[0].Addr
 		}
-		Log.Printf("router: path[%d] score=%.0f hops=%d via=%s", i, p.Score, len(p.Relays), tag)
+		logevent.Emit(binlog.TagTunnel, logevent.EventRouterPathEntry,
+			logevent.Int(logevent.AttrIndex, int64(i)),
+			logevent.Int(logevent.AttrScore, int64(p.Score)),
+			logevent.Int(logevent.AttrHops, int64(len(p.Relays))),
+			logevent.Str(logevent.AttrVia, tag))
 	}
 }
 
@@ -1077,14 +1106,68 @@ func (r *Router) QualifyingControlAddrs() []string {
 	return out
 }
 
+// BalanceByTransport caps addrs (assumed already sorted best-first, e.g. by
+// e2e RTT) at max entries while guaranteeing real transport diversity in the
+// pool: TCP and QUIC are co-equal transports, not a primary/fallback pair --
+// letting a pure RTT sort fill the whole pool with whichever one happens to
+// win more probe races risks losing ALL redundancy on that transport the
+// moment it degrades on the client's actual network (confirmed live
+// 2026-08-25: a mobile client whose QUIC path was silently blackholed had
+// its entire pool won by QUIC, so nothing fell back to TCP until the
+// last-resort watchdog eventually fired a full restart -- if even one TCP
+// dialer had been in the pool, none of that would have been needed).
+// Reserves up to half of max for each transport, backfilling from whichever
+// group has more entries if the other can't fill its half, then re-sorts
+// the combined result by ControlRTT so the best working connections still
+// come first overall -- diversity is added on top of quality, not instead
+// of it.
+func (r *Router) BalanceByTransport(addrs []string, max int) []string {
+	if max <= 0 || len(addrs) <= max {
+		return addrs
+	}
+	var tcp, quic []string
+	for _, a := range addrs {
+		if r.ControlTransport(a) == transportUDP {
+			quic = append(quic, a)
+		} else {
+			tcp = append(tcp, a)
+		}
+	}
+	tcpN, quicN := max/2, max-max/2
+	if len(tcp) < tcpN {
+		quicN += tcpN - len(tcp)
+		tcpN = len(tcp)
+	}
+	if len(quic) < quicN {
+		tcpN += quicN - len(quic)
+		quicN = len(quic)
+	}
+	if tcpN > len(tcp) {
+		tcpN = len(tcp)
+	}
+	out := append(append([]string(nil), tcp[:tcpN]...), quic[:quicN]...)
+	sort.Slice(out, func(i, j int) bool {
+		ri, rj := r.ControlRTT(out[i]), r.ControlRTT(out[j])
+		if ri == 0 {
+			return false
+		}
+		if rj == 0 {
+			return true
+		}
+		return ri < rj
+	})
+	return out
+}
+
 // AllControlAddrs returns every known control address regardless of liveness.
-// Filtering through QualifyingControlAddrs instead (which only returns addrs
-// present in r.paths, itself built from r.alive()) can create a one-way
-// death spiral for a caller whose own liveness signal doesn't come from
-// ProbeDataPlane: a control that drops out from TCP-probe staleness is never
-// retried, so it never gets marked alive again, so it never returns. Any
-// caller with an independent way to confirm a control is reachable should
-// use this instead and call MarkControlAlive on success.
+// TCP-based liveness (alive/LastSeen) is meaningless in WildCat mode — direct
+// TCP to controls is blocked, so ProbeDataPlane never runs and LastSeen goes
+// stale after 30s. Filtering through QualifyingControlAddrs (which only
+// returns addrs present in r.paths, itself built from r.alive()) creates a
+// one-way death spiral: a control that drops out from staleness is never
+// retried, so it never gets marked alive again, so it never returns. WildCat
+// pool building must use this instead — relay auth success is the only
+// liveness signal that matters there.
 func (r *Router) AllControlAddrs() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -1139,16 +1222,12 @@ func (r *Router) ControlTransportName(addr string) string {
 }
 
 // NewControlDialer creates the appropriate TunnelDialer for a qualifying control
-// address.  When ProbeDataPlane detected that addr is only reachable via UDP,
-// the returned dialer sends all tunnel traffic over a direct UDP connection to
-// the control.  Otherwise a standard TCP-backed TunnelDialer is returned.
+// address.  When ProbeDataPlane detected that addr is only reachable via QUIC,
+// the returned dialer sends all tunnel traffic over a QUIC connection to the
+// control.  Otherwise a standard TCP-backed TunnelDialer is returned.
 func (r *Router) NewControlDialer(addr string, auth *Authenticator) (*TunnelDialer, error) {
 	if r.ControlTransport(addr) == transportUDP {
-		conn, err := newUDPControlConn(addr)
-		if err != nil {
-			return nil, fmt.Errorf("udp-control dialer for %s: %w", addr, err)
-		}
-		return NewUDPRelayDialer(conn, auth), nil
+		return NewQUICRelayDialer(addr, auth), nil
 	}
 	return NewTunnelDialer(auth), nil
 }

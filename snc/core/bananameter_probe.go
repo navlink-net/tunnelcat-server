@@ -16,11 +16,14 @@ import (
 
 // BananameterProber runs this client's leg of the tunnel-diagnostics probe
 // (see TODO.md "BananaMeter-based tunnel diagnostics"): every 10 minutes,
-// while connected, fetch a small payload from bananameter.net through the
-// *real* active tunnel dialer -- the same path any of the user's own
-// traffic takes, never a bypass -- and report the result both to
-// BananaMeter's shared fleet account and to the TunnelCat arbiter with this
-// device's real identity.
+// while connected and not in WildCat mode, fetch a small payload from
+// bananameter.net through the *real* active tunnel dialer -- the same path
+// any of the user's own traffic takes, never a bypass -- and report the
+// result both to BananaMeter's shared fleet account and to the TunnelCat
+// arbiter with this device's real identity. WildCat is excluded by the
+// caller (see Start's wildcatActive param): that transport is a disguised,
+// bandwidth-constrained fallback, not the thing we want a synthetic
+// background test competing with.
 const (
 	bananameterProbeEvery = 10 * time.Minute
 	bananameterBaseURL    = "https://bananameter.net"
@@ -90,8 +93,10 @@ func NewBananameterProber(creds BananameterCreds, clientID, deviceID, username s
 // Start launches the background probe loop. pickDialer returns the
 // currently active TunnelDialer (e.g. pool.Pick()), or nil if not
 // connected right now -- checked fresh on every tick, not cached, since
-// connection state changes over the life of this prober.
-func (b *BananameterProber) Start(pickDialer func() *TunnelDialer) {
+// connection state changes over the life of this prober. wildcatActive
+// reports whether WildCat transport is the active mode; when true, the
+// tick is skipped entirely (see doc comment above for why).
+func (b *BananameterProber) Start(pickDialer func() *TunnelDialer, wildcatActive func() bool) {
 	if b.creds.NodeID == "" || b.creds.NodeKey == "" || b.creds.ArbiterClientKey == "" {
 		Log.Printf("bananameter: credentials not configured, client probe disabled")
 		return
@@ -104,6 +109,10 @@ func (b *BananameterProber) Start(pickDialer func() *TunnelDialer) {
 			case <-b.stop:
 				return
 			case <-t.C:
+				if wildcatActive != nil && wildcatActive() {
+					Log.Printf("bananameter: skipping probe, WildCat active")
+					continue
+				}
 				dialer := pickDialer()
 				if dialer == nil {
 					Log.Printf("bananameter: skipping probe, not connected")

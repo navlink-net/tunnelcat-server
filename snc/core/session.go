@@ -14,6 +14,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"tunnel_cat/binlog"
+	"tunnel_cat/logevent"
 )
 
 // ChanDepth controls the depth of each TunnelConn's dataChan buffer.
@@ -317,7 +320,9 @@ func (c *TunnelConn) startStreamLoop() {
 			if !ok || newFn == nil {
 				return false
 			}
-			Log.Printf("tunnel-conn %s: stream renewed after %s", c.connID, reason)
+			logevent.Emit(binlog.TagTunnel, logevent.EventSessionStreamRenewed,
+				logevent.Str(logevent.AttrConnId, c.connID),
+				logevent.Str(logevent.AttrReason, reason))
 			streamFn = newFn
 			openErrors = 0
 			flaps = 0
@@ -329,7 +334,9 @@ func (c *TunnelConn) startStreamLoop() {
 		// from "the remote target closed normally" (expected app-layer event,
 		// must not be mistaken for a control failure).
 		giveUp := func(reason string, controlFailure bool) {
-			Log.Printf("tunnel-conn %s: stream giving up: %s", c.connID, reason)
+			logevent.Emit(binlog.TagTunnel, logevent.EventSessionStreamGiveup,
+				logevent.Str(logevent.AttrConnId, c.connID),
+				logevent.Str(logevent.AttrReason, reason))
 			if controlFailure && c.onStreamDead != nil {
 				c.onStreamDead()
 			}
@@ -349,7 +356,9 @@ func (c *TunnelConn) startStreamLoop() {
 				// only delays teardown — give up immediately so the caller can open a
 				// fresh upload and start a new connection.
 				if he, ok := err.(*streamHTTPError); ok && he.status == 404 {
-					Log.Printf("tunnel-conn %s: stream 404 — exit closed (reason=%s), giving up", c.connID, he.closeReason)
+					logevent.Emit(binlog.TagTunnel, logevent.EventSessionStreamGiveup404,
+						logevent.Str(logevent.AttrConnId, c.connID),
+						logevent.Str(logevent.AttrCloseReason, he.closeReason))
 					// The exit explicitly reported targetClosed or not-found —
 					// this is an app-layer outcome, not evidence the control/exit
 					// path is broken, so it must not count toward data-fail eviction.
@@ -358,7 +367,10 @@ func (c *TunnelConn) startStreamLoop() {
 				}
 				openErrors++
 				flaps = 0
-				Log.Printf("tunnel-conn %s: stream open error #%d: %v", c.connID, openErrors, err)
+				logevent.Emit(binlog.TagTunnel, logevent.EventSessionStreamOpenError,
+					logevent.Str(logevent.AttrConnId, c.connID),
+					logevent.Int(logevent.AttrAttempt, int64(openErrors)),
+					logevent.Str("err", err.Error()))
 				if openErrors >= streamMaxOpenErrors {
 					if tryRenew(fmt.Sprintf("%d consecutive open errors", openErrors)) {
 						continue
@@ -376,8 +388,10 @@ func (c *TunnelConn) startStreamLoop() {
 			}
 			openErrors = 0
 			opened := time.Now()
-			Log.Printf("tunnel-conn %s: stream opened", c.connID)
+			logevent.Emit(binlog.TagTunnel, logevent.EventSessionStreamOpened,
+				logevent.Str(logevent.AttrConnId, c.connID))
 
+			var readErr error
 			for {
 				n, err := body.Read(buf)
 				if n > 0 {
@@ -393,15 +407,27 @@ func (c *TunnelConn) startStreamLoop() {
 					}
 				}
 				if err != nil {
+					readErr = err
 					break
 				}
 			}
 			body.Close()
 
-			// A stream that died immediately is a flap — add backoff and count toward give-up.
-			if time.Since(opened) < streamMinLifetime {
+			// A stream that died immediately is a flap — add backoff and count
+			// toward give-up. But only when it actually died: io.EOF here means
+			// the exit closed the body after cleanly delivering everything it
+			// had (e.g. a fast request/response against a quick destination —
+			// confirmed live 2026-08-21, sub-second io.EOF closes against
+			// Google CDN IPs were being flap-counted identically to a real
+			// broken connection, which cascaded into unwarranted control
+			// eviction and reauth). A genuine failure (reset, timeout,
+			// anything but a clean EOF) still counts exactly as before.
+			if readErr != nil && readErr != io.EOF && time.Since(opened) < streamMinLifetime {
 				flaps++
-				Log.Printf("tunnel-conn %s: stream flapped (%d/%d)", c.connID, flaps, streamMaxFlaps)
+				logevent.Emit(binlog.TagTunnel, logevent.EventSessionStreamFlapped,
+					logevent.Str(logevent.AttrConnId, c.connID),
+					logevent.Int(logevent.AttrCount, int64(flaps)),
+					logevent.Int(logevent.AttrMax, int64(streamMaxFlaps)))
 				if flaps >= streamMaxFlaps {
 					if tryRenew(fmt.Sprintf("%d consecutive flaps", flaps)) {
 						continue
@@ -417,7 +443,8 @@ func (c *TunnelConn) startStreamLoop() {
 				}
 			} else {
 				flaps = 0
-				Log.Printf("tunnel-conn %s: stream closed, reopening", c.connID)
+				logevent.Emit(binlog.TagTunnel, logevent.EventSessionStreamClosedReopening,
+					logevent.Str(logevent.AttrConnId, c.connID))
 			}
 		}
 	}()

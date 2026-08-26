@@ -174,8 +174,8 @@ func (h *handler) apiAdminUsersStats(w http.ResponseWriter, r *http.Request) {
 // apiAdminUsersSummary serves GET /admin/api/users/summary?range=24h|7d|30d --
 // scalar summary numbers for the Users tab of the network-stats page, next
 // to (not replacing) the existing time-series charts there: average session
-// duration and distinct users connected, all scoped to the same range
-// toggle those charts already use (statsRangeWindow).
+// duration, WildCat session count, and distinct users connected, all scoped
+// to the same range toggle those charts already use (statsRangeWindow).
 // Also includes session_duration_buckets, 10-min-bucketed history for the
 // avg-session-duration chart -- the scalar avg_session_seconds above is just
 // that same data collapsed to one number for the range, so both come from
@@ -192,6 +192,14 @@ func (h *handler) apiAdminUsersSummary(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		logWarnf("apiAdminUsersSummary: avg session duration history: %v", err)
 	}
+	wildcatSessions, err := h.db.CountWildcatSessions(window)
+	if err != nil {
+		logWarnf("apiAdminUsersSummary: wildcat sessions: %v", err)
+	}
+	var wildcatAvgSeconds float64
+	if total := wildcatSessions.OK + wildcatSessions.Failed; total > 0 {
+		wildcatAvgSeconds = float64(wildcatSessions.SecondsTotal) / float64(total)
+	}
 	distinctUsers, err := h.db.CountActiveUsers(window)
 	if err != nil {
 		logWarnf("apiAdminUsersSummary: distinct users: %v", err)
@@ -201,6 +209,8 @@ func (h *handler) apiAdminUsersSummary(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{ //nolint:errcheck
 		"avg_session_seconds":      avgSessionSeconds,
 		"session_duration_buckets": sessionBuckets,
+		"wildcat_sessions":         wildcatSessions,
+		"wildcat_avg_seconds":      wildcatAvgSeconds,
 		"distinct_users":           distinctUsers,
 	})
 }
@@ -238,6 +248,23 @@ func (h *handler) apiAdminUsersCSV(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	cw.Flush()
+}
+
+// ── GET /admin/api/users/never-connected ────────────────────────────────────
+
+// apiAdminNeverConnected returns every registered username with no user_stats
+// row (never had traffic through an exit), used one-off 2026-08-20 to size
+// and address the gap between "Total accounts" and "Active users" on the
+// dashboard -- see listNeverConnectedAccounts's doc comment.
+func (h *handler) apiAdminNeverConnected(w http.ResponseWriter, r *http.Request) {
+	accounts, err := h.db.listNeverConnectedAccounts()
+	if err != nil {
+		logWarnf("apiAdminNeverConnected: %v", err)
+		jsonErr(w, "database error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(accounts) //nolint:errcheck
 }
 
 // ── GET /admin/users ──────────────────────────────────────────────────────────

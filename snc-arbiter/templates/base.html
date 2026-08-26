@@ -82,11 +82,53 @@ input[type=text],input[type=password],input[type=number],input[type=date],input[
 
 /* mobile */
 @media(max-width:700px){
+  /* Last-resort safety net: no matter what still overflows below, the
+     PAGE itself never grows a horizontal scrollbar -- content that
+     doesn't fit gets clipped rather than shifting the whole viewport
+     sideways on every touch. The flex-wrap fix right below is what
+     actually prevents that content from needing to be clipped at all;
+     this is just insurance against anything this pass missed. */
+  body{overflow-x:hidden}
+  img,canvas,svg{max-width:100%}
+
+  /* The real fix: every stat-card row, button-toggle row, and inline
+     control strip in these templates is a bare style="display:flex;..."
+     with no flex-wrap -- fine at desktop widths where everything fits on
+     one line, but on a phone the row is simply wider than the screen and
+     (since nothing here constrains it) drags the whole page into
+     horizontal scroll along with it. Forcing wrap on every inline flex
+     container turns each of those into a normal multi-row, stacks-when-
+     it-must layout instead -- a mobile-appropriate shape, not a shrunk
+     copy of the desktop one -- without editing 20+ template files
+     individually. Matches [style*="display: flex"] too (Go's html/template
+     doesn't normalize spacing, but nothing in this codebase emits the
+     space form today -- kept for safety). !important is required: this
+     is overriding an inline style attribute, the highest normal-specificity
+     level short of !important itself. */
+  [style*="display:flex"],[style*="display: flex"]{flex-wrap:wrap !important}
+
   main{padding:0 .5rem;margin:1rem auto}
   h1{font-size:1.15rem}
   h2{font-size:1rem}
   .card{padding:.85rem .9rem}
   th,td{padding:.45rem .55rem;font-size:13px}
+
+  /* Tables shrank font instead of scrolling, which is what actually made
+     them unreadable on a phone -- scroll the table itself horizontally
+     instead. display:block on <table> alone is enough: thead/tbody/tr/td
+     keep their table-family display values (not overridden here), so the
+     browser generates an anonymous table box around them that still lays
+     out columns correctly -- it's just that anonymous box, not the whole
+     page, that gets the horizontal scrollbar. */
+  table{display:block;width:auto;max-width:100%;overflow-x:auto;white-space:nowrap}
+
+  /* Line-chart canvases (direct children of .card) get a fixed height here
+     instead of Chart.js's default width/aspectRatio sizing, which squishes
+     badly at phone width -- see each template's CHART_MOBILE. Bar charts
+     are unaffected: their canvases sit one level deeper inside their own
+     overflow-x:auto wrapper (this selector only matches direct children),
+     and already scroll horizontally by design. */
+  .card > canvas{height:220px !important}
 }
 </style>
 </head>
@@ -101,6 +143,7 @@ input[type=text],input[type=password],input[type=number],input[type=date],input[
     <a href="/admin">Dashboard</a>
     <a href="/admin/infra">Infra</a>
     <a href="/admin/pending">Pending</a>
+    <a href="/admin/dev-apps">Dev Program</a>
     <a href="/admin/update">Updates</a>
     <a href="/admin/key">Keys</a>
     <a href="/admin/whitelist">Lists</a>

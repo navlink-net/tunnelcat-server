@@ -49,7 +49,10 @@ CREATE TABLE IF NOT EXISTS client_conn_stats (
 	disconnects_manual    INTEGER NOT NULL DEFAULT 0, -- delta
 	disconnects_auto      INTEGER NOT NULL DEFAULT 0, -- delta
 	flap_events           INTEGER NOT NULL DEFAULT 0, -- delta
-	evictions             INTEGER NOT NULL DEFAULT 0  -- delta
+	evictions             INTEGER NOT NULL DEFAULT 0, -- delta
+	wildcat_sessions_ok     INTEGER NOT NULL DEFAULT 0, -- delta: WildCat sessions that ended since last upload having established a real, live WLWTP/TURN session
+	wildcat_sessions_failed INTEGER NOT NULL DEFAULT 0, -- delta: WildCat sessions that ended since last upload without ever establishing one
+	wildcat_seconds_total   INTEGER NOT NULL DEFAULT 0  -- delta: sum of ended WildCat sessions' durations (OK + failed) since last upload
 );
 CREATE INDEX IF NOT EXISTS client_conn_stats_username_ts ON client_conn_stats(username, ts);
 CREATE INDEX IF NOT EXISTS client_conn_stats_ts           ON client_conn_stats(ts);
@@ -59,6 +62,21 @@ CREATE INDEX IF NOT EXISTS client_conn_stats_ts           ON client_conn_stats(t
 func (d *DB) initConnStatsSchema() error {
 	if _, err := d.db.Exec(connStatsSchemaSQL); err != nil {
 		return err
+	}
+	// CREATE TABLE IF NOT EXISTS above is a no-op on an already-existing
+	// table, so a column added after the table's first deploy needs its own
+	// ALTER (same pattern as node_traffic's initTrafficSchema). The original
+	// single wildcat_sessions column is superseded by the OK/failed/seconds
+	// split below (2026-08-16) but left alone rather than dropped/renamed --
+	// no reader references it any more, and dropping a column is unnecessary
+	// churn for a column that costs nothing sitting unused.
+	for _, stmt := range []string{
+		`ALTER TABLE client_conn_stats ADD COLUMN wildcat_sessions INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE client_conn_stats ADD COLUMN wildcat_sessions_ok INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE client_conn_stats ADD COLUMN wildcat_sessions_failed INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE client_conn_stats ADD COLUMN wildcat_seconds_total INTEGER NOT NULL DEFAULT 0`,
+	} {
+		d.db.Exec(stmt) //nolint:errcheck // fails on duplicate column, which is fine
 	}
 	return nil
 }
@@ -85,6 +103,9 @@ type connStatsReport struct {
 	DisconnectsAuto       int
 	FlapEvents            int
 	Evictions             int
+	WildcatSessionsOK     int
+	WildcatSessionsFailed int
+	WildcatSecondsTotal   int64
 }
 
 // usernameForDeviceID returns the most recently reported username for a
@@ -117,13 +138,15 @@ func (d *DB) insertConnStats(r connStatsReport) error {
 			pool_tcp, pool_udp, unreachable_controls, total_controls,
 			seconds_online, avg_fail_ratio,
 			rejected_sessions, connects_manual, connects_auto,
-			disconnects_manual, disconnects_auto, flap_events, evictions
-		) VALUES (?,?,?,?,?, ?,?,?,?, ?,?, ?,?,?, ?,?,?,?)`,
+			disconnects_manual, disconnects_auto, flap_events, evictions,
+			wildcat_sessions_ok, wildcat_sessions_failed, wildcat_seconds_total
+		) VALUES (?,?,?,?,?, ?,?,?,?, ?,?, ?,?,?, ?,?,?,?, ?,?,?)`,
 		r.Ts, r.Username, r.DeviceID, r.NodeType, r.ClientVersion,
 		r.PoolTCP, r.PoolUDP, r.UnreachableControls, r.TotalControls,
 		r.SecondsOnline, r.AvgFailRatio,
 		r.RejectedSessions, r.ConnectsManual, r.ConnectsAuto,
-		r.DisconnectsManual, r.DisconnectsAuto, r.FlapEvents, r.Evictions)
+		r.DisconnectsManual, r.DisconnectsAuto, r.FlapEvents, r.Evictions,
+		r.WildcatSessionsOK, r.WildcatSessionsFailed, r.WildcatSecondsTotal)
 	return err
 }
 
@@ -146,6 +169,9 @@ type connStatsDeviceBucket struct {
 	DisconnectsAuto       int64   `json:"disconnects_auto"`
 	FlapEvents            int64   `json:"flap_events"`
 	Evictions             int64   `json:"evictions"`
+	WildcatSessionsOK     int64   `json:"wildcat_sessions_ok"`
+	WildcatSessionsFailed int64   `json:"wildcat_sessions_failed"`
+	WildcatSecondsTotal   int64   `json:"wildcat_seconds_total"`
 	Samples               int     `json:"samples"`
 }
 
@@ -161,6 +187,7 @@ func (d *DB) userConnStatsHistory(username string, since time.Time) ([]connStats
 		       AVG(seconds_online), AVG(avg_fail_ratio),
 		       SUM(rejected_sessions), SUM(connects_manual), SUM(connects_auto),
 		       SUM(disconnects_manual), SUM(disconnects_auto), SUM(flap_events), SUM(evictions),
+		       SUM(wildcat_sessions_ok), SUM(wildcat_sessions_failed), SUM(wildcat_seconds_total),
 		       COUNT(*)
 		FROM client_conn_stats
 		WHERE username=? AND ts>=?
@@ -178,6 +205,7 @@ func (d *DB) userConnStatsHistory(username string, since time.Time) ([]connStats
 			&b.SecondsOnline, &b.AvgFailRatio,
 			&b.RejectedSessions, &b.ConnectsManual, &b.ConnectsAuto,
 			&b.DisconnectsManual, &b.DisconnectsAuto, &b.FlapEvents, &b.Evictions,
+			&b.WildcatSessionsOK, &b.WildcatSessionsFailed, &b.WildcatSecondsTotal,
 			&b.Samples); err != nil {
 			return nil, err
 		}
@@ -203,6 +231,9 @@ type connStatsFleetBucket struct {
 	DisconnectsAuto       float64 `json:"disconnects_auto"`
 	FlapEvents            float64 `json:"flap_events"`
 	Evictions             float64 `json:"evictions"`
+	WildcatSessionsOK     float64 `json:"wildcat_sessions_ok"`
+	WildcatSessionsFailed float64 `json:"wildcat_sessions_failed"`
+	WildcatSecondsTotal   float64 `json:"wildcat_seconds_total"`
 	Samples               int     `json:"samples"`
 }
 
@@ -216,6 +247,7 @@ func (d *DB) fleetConnStatsHistory(since time.Time) ([]connStatsFleetBucket, err
 		       AVG(seconds_online), AVG(avg_fail_ratio),
 		       AVG(rejected_sessions), AVG(connects_manual), AVG(connects_auto),
 		       AVG(disconnects_manual), AVG(disconnects_auto), AVG(flap_events), AVG(evictions),
+		       AVG(wildcat_sessions_ok), AVG(wildcat_sessions_failed), AVG(wildcat_seconds_total),
 		       COUNT(*)
 		FROM client_conn_stats
 		WHERE ts>=?
@@ -233,6 +265,7 @@ func (d *DB) fleetConnStatsHistory(since time.Time) ([]connStatsFleetBucket, err
 			&b.SecondsOnline, &b.AvgFailRatio,
 			&b.RejectedSessions, &b.ConnectsManual, &b.ConnectsAuto,
 			&b.DisconnectsManual, &b.DisconnectsAuto, &b.FlapEvents, &b.Evictions,
+			&b.WildcatSessionsOK, &b.WildcatSessionsFailed, &b.WildcatSecondsTotal,
 			&b.Samples); err != nil {
 			return nil, err
 		}
@@ -261,6 +294,9 @@ type connStatsSample struct {
 	DisconnectsAuto       int     `json:"disconnects_auto"`
 	FlapEvents            int     `json:"flap_events"`
 	Evictions             int     `json:"evictions"`
+	WildcatSessionsOK     int     `json:"wildcat_sessions_ok"`
+	WildcatSessionsFailed int     `json:"wildcat_sessions_failed"`
+	WildcatSecondsTotal   int64   `json:"wildcat_seconds_total"`
 }
 
 // connStatsOlderThan returns raw samples older than cutoff, oldest first --
@@ -271,7 +307,8 @@ func (d *DB) connStatsOlderThan(cutoff int64) ([]connStatsSample, error) {
 		       pool_tcp, pool_udp, unreachable_controls, total_controls,
 		       seconds_online, avg_fail_ratio,
 		       rejected_sessions, connects_manual, connects_auto,
-		       disconnects_manual, disconnects_auto, flap_events, evictions
+		       disconnects_manual, disconnects_auto, flap_events, evictions,
+		       wildcat_sessions_ok, wildcat_sessions_failed, wildcat_seconds_total
 		FROM client_conn_stats WHERE ts < ? ORDER BY ts ASC`, cutoff)
 	if err != nil {
 		return nil, err
@@ -284,7 +321,8 @@ func (d *DB) connStatsOlderThan(cutoff int64) ([]connStatsSample, error) {
 			&s.PoolTCP, &s.PoolUDP, &s.UnreachableControls, &s.TotalControls,
 			&s.SecondsOnline, &s.AvgFailRatio,
 			&s.RejectedSessions, &s.ConnectsManual, &s.ConnectsAuto,
-			&s.DisconnectsManual, &s.DisconnectsAuto, &s.FlapEvents, &s.Evictions); err != nil {
+			&s.DisconnectsManual, &s.DisconnectsAuto, &s.FlapEvents, &s.Evictions,
+			&s.WildcatSessionsOK, &s.WildcatSessionsFailed, &s.WildcatSecondsTotal); err != nil {
 			return nil, err
 		}
 		out = append(out, s)

@@ -1,13 +1,13 @@
 <!--
-Copyright (C) Konstantin Khait & Claude Code
-For IT Partners Solutions and Freedom and Rights
-2026
+The Tunnel Cat Project
+Copyright (C) NavLink, 2026
+Лицензировано под лицензией Apache 2.0
 -->
 
-# tunnelcat-core wire protocol
+# tunnelcat-server wire protocol
 
 This document describes the HTTP wire protocol `Authenticator`/`TunnelDialer`
-in [tunnelcat-core](https://github.com/kostiakhait/tunnelcat-core) speak,
+in [tunnelcat-server](https://github.com/navlink-net/tunnelcat-server) speak,
 so a third party can implement a compatible control/exit server (or a
 client in a language with no SDK adapter) without reading Go source.
 [`cmd/mockserver`](../cmd/mockserver) is a minimal reference implementation

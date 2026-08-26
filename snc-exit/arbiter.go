@@ -103,8 +103,7 @@ func (a *authClient) validatePeerToken(token string) (addr string, err error) {
 }
 
 // validateNodeToken asks the arbiter whether token belongs to any live approved node.
-// Returns the node's address and type. Used by the peer-relay endpoint to accept
-// control tokens (see peer_conn.go).
+// Returns the node's address and type. Used by wildcat relay to accept control tokens.
 func (a *authClient) validateNodeToken(token string) (addr, nodeType string, err error) {
 	body, _ := json.Marshal(map[string]string{"token": token})
 	req, err := http.NewRequest(http.MethodPost, a.arbiterURL+"/api/node/validate", bytes.NewReader(body))

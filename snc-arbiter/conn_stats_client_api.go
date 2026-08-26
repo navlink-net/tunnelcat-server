@@ -41,6 +41,16 @@ type clientConnStatsPayload struct {
 	DisconnectsAuto     int     `json:"disconnects_auto"`
 	FlapEvents          int     `json:"flap_events"`
 	Evictions           int     `json:"evictions"`
+	// WildcatSessionsOK/Failed: delta counts of WildCat (third-party relay)
+	// sessions that ended since the last upload, split by outcome -- OK means
+	// the session established at least one real, live WLWTP/TURN session
+	// (the relay pool's HadLiveSession(), see tunnel_cat/snc/core/conn_stats.go);
+	// Failed covers everything else (relay auth rejected, no controls to relay
+	// through, or an interrupted session recovered from a previous process
+	// instance's persisted state).
+	WildcatSessionsOK     int   `json:"wildcat_sessions_ok"`
+	WildcatSessionsFailed int   `json:"wildcat_sessions_failed"`
+	WildcatSecondsTotal   int64 `json:"wildcat_seconds_total"` // sum of ended sessions' durations (OK + failed) since the last upload
 }
 
 // apiClientConnStatsUpload handles POST /api/conn-stats/client-upload -- a
@@ -103,6 +113,9 @@ func (h *handler) apiClientConnStatsUpload(w http.ResponseWriter, r *http.Reques
 		DisconnectsAuto:       p.DisconnectsAuto,
 		FlapEvents:            p.FlapEvents,
 		Evictions:             p.Evictions,
+		WildcatSessionsOK:     p.WildcatSessionsOK,
+		WildcatSessionsFailed: p.WildcatSessionsFailed,
+		WildcatSecondsTotal:   p.WildcatSecondsTotal,
 	})
 	if err != nil {
 		logWarnf("conn-stats-client-upload: insert user=%s device=%.16s…: %v", p.Username, nodeID, err)

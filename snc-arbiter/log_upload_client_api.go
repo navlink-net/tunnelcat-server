@@ -30,7 +30,7 @@ func (h *handler) checkLogUploadClientKey(r *http.Request) bool {
 // picked exit -> arbiter path (snc-control/relay_api.go's logUpload,
 // removed 2026-08-11): that path was hop-by-hop TLS only, so both the
 // control and the exit that happened to relay a given upload saw the full
-// decompressed log content in plaintext -- found after a raw VK OAuth token
+// decompressed log content in plaintext -- found after a raw third-party OAuth token
 // turned up in cleartext in a real user's uploaded logs. Reaching the
 // arbiter directly over the client's own tunnel is genuinely end-to-end:
 // neither control nor exit ever holds the plaintext.

@@ -20,7 +20,7 @@ public struct ConnectParams {
     public var username: String = ""
     public var password: String = ""
     public var socksAddr: String = ""
-    /// cmd/mockserver (and tunnelcat-core's own test stub) only support polling mode.
+    /// cmd/mockserver (and tunnelcat-server's own test stub) only support polling mode.
     public var pollingOnly: Bool = false
 
     public init(server: String, apiKey: String = "", username: String = "", password: String = "",

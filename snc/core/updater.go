@@ -250,6 +250,31 @@ func (u *Updater) checkAndDownload() {
 	}
 }
 
+// ApplyTorrentDownloadedZip stages a torrent-downloaded update ZIP at the
+// same location ApplyPendingUpdate expects, mirroring checkAndDownload's own
+// steps 4 onward (extract .exe, place at installerUpdateBinary/
+// clientUpdateBinary). No separate SHA-256 check here, unlike the HTTP path
+// -- the torrent engine already verified every piece against the magnet's
+// btih (itself derived from the file's content) before reporting the
+// download complete, so the integrity guarantee is already as strong as the
+// HTTP path's explicit hash check.
+func ApplyTorrentDownloadedZip(zipPath string, installerManaged bool) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("executable: %w", err)
+	}
+	dir := filepath.Dir(exe)
+	binName := installerUpdateBinary
+	if installerManaged {
+		binName = clientUpdateBinary
+	}
+	updatePath := filepath.Join(dir, binName)
+	if err := extractExeFromZip(zipPath, updatePath); err != nil {
+		return fmt.Errorf("extract: %w", err)
+	}
+	return nil
+}
+
 // extractExeFromZip finds the first .exe entry in the ZIP at zipPath and writes
 // it to destPath.
 func extractExeFromZip(zipPath, destPath string) error {
@@ -360,7 +385,7 @@ func applyInstallerHandoff(installerPath string) {
 	if err := os.Rename(installerPath, tempPath); err == nil {
 		runPath = tempPath
 	} else {
-		fmt.Fprintf(os.Stderr, "update: move installer out of install dir (continuing anyway): %v\n", err)
+		Log.Printf("update: move installer out of install dir (continuing anyway): %v", err)
 	}
 
 	cmd := exec.Command(runPath)
@@ -368,7 +393,7 @@ func applyInstallerHandoff(installerPath string) {
 		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP,
 	}
 	if err := cmd.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "update: launch installer: %v\n", err)
+		Log.Printf("update: launch installer: %v", err)
 		return
 	}
 
@@ -383,15 +408,27 @@ func applyInstallerHandoff(installerPath string) {
 func applyClientSelfReplace(exe, dir, updatePath string) {
 	oldPath := filepath.Join(dir, clientOldBinary)
 
+	// A stale oldPath left over from a previous run whose relaunch (below)
+	// crashed or was killed before UpdateCleanup() ever got a chance to run
+	// again -- confirmed live, 2026-08-22: a shortnerdcat.exe.old sat next to
+	// the running exe for 12 days, meaning every update attempt in that
+	// window silently no-op'd. os.Rename itself would still succeed here
+	// (Go's Windows os.Rename passes MOVEFILE_REPLACE_EXISTING), but remove
+	// it defensively anyway so a locked/in-use leftover from a genuinely
+	// stuck previous attempt can't silently block this one the same way.
+	if err := os.Remove(oldPath); err != nil && !os.IsNotExist(err) {
+		Log.Printf("update: stale %s could not be removed before replace (continuing anyway): %v", clientOldBinary, err)
+	}
+
 	// Rename the running exe out of the way.
 	if err := os.Rename(exe, oldPath); err != nil {
-		fmt.Fprintf(os.Stderr, "update: rename current exe: %v\n", err)
+		Log.Printf("update: rename current exe: %v", err)
 		return
 	}
 
 	// Put the update in its place.
 	if err := os.Rename(updatePath, exe); err != nil {
-		fmt.Fprintf(os.Stderr, "update: rename update exe: %v\n", err)
+		Log.Printf("update: rename update exe: %v", err)
 		os.Rename(oldPath, exe) //nolint:errcheck
 		return
 	}
@@ -409,7 +446,7 @@ func applyClientSelfReplace(exe, dir, updatePath string) {
 		HideWindow:    true,
 	}
 	if err := cmd.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "update: relaunch: %v\n", err)
+		Log.Printf("update: relaunch: %v", err)
 		// Try to restore so the user can still run the old version.
 		os.Rename(exe, updatePath) //nolint:errcheck
 		os.Rename(oldPath, exe)    //nolint:errcheck
@@ -449,6 +486,8 @@ func UpdateCleanup() {
 	for _, name := range []string{installerUpdateZip, clientUpdateZip, clientOldBinary} {
 		if err := os.Remove(filepath.Join(dir, name)); err == nil {
 			Log.Printf("updater: cleaned up %s", name)
+		} else if !os.IsNotExist(err) {
+			Log.Printf("updater: could not clean up %s: %v", name, err)
 		}
 	}
 }

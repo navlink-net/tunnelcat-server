@@ -152,7 +152,7 @@ func (rb *ringBuffer) Snapshot() []byte {
 // snc-control/relay_api.go). That path was hop-by-hop TLS only: both the
 // control and the exit that happened to relay a given upload saw the full
 // decompressed log content in plaintext in memory, not just the arbiter --
-// found after a raw VK OAuth token turned up in cleartext in a real user's
+// found after a raw third-party OAuth token turned up in cleartext in a real user's
 // uploaded logs. The fix is encrypting the *channel*, not redacting log
 // content (content stays exactly as detailed as before, including for
 // direct/manual log sharing, which is unaffected). Sending over the client's
@@ -180,10 +180,13 @@ func NewLogUploader(nodeID, nodeType string) *LogUploader {
 //
 // pickDialer returns the currently active TunnelDialer (e.g. pool.Pick()),
 // or nil if not connected right now -- checked fresh on every tick, matching
-// BananameterProber.Start. Skipped ticks don't lose anything: the cursor
-// doesn't move, so the next successful tick picks up exactly where the last
-// one left off.
-func (lu *LogUploader) Start(pickDialer func() *TunnelDialer) {
+// BananameterProber.Start. wildcatActive reports whether WildCat transport
+// is the active mode; when true, the tick is skipped entirely and nothing is
+// sent -- WildCat's bandwidth is deliberately constrained (third-party relay),
+// and log uploads are not important enough to compete with it for bytes.
+// Skipped ticks don't lose anything: the cursor doesn't move, so the next
+// successful tick picks up exactly where the last one left off.
+func (lu *LogUploader) Start(pickDialer func() *TunnelDialer, wildcatActive func() bool) {
 	go func() {
 		t := time.NewTicker(logUploadInterval)
 		defer t.Stop()
@@ -192,6 +195,10 @@ func (lu *LogUploader) Start(pickDialer func() *TunnelDialer) {
 			case <-lu.stop:
 				return
 			case <-t.C:
+				if wildcatActive != nil && wildcatActive() {
+					Log.Printf("log-upload: skipping tick, WildCat active")
+					continue
+				}
 				dialer := pickDialer()
 				if dialer == nil {
 					Log.Printf("log-upload: skipping tick, not connected")
@@ -378,8 +385,8 @@ func saveLogUploadCursor(file string, offset int64) {
 // build up used to take just as many ticks to drain even while connected
 // and idle-quiet the whole time; sending "everything accumulated" every 5
 // minutes means backlog only grows when a tick is actually skipped
-// (disconnected), and drains in the very next tick that isn't, exactly as
-// originally specified.
+// (disconnected, WildCat active), and drains in the very next tick that
+// isn't, exactly as originally specified.
 func (lu *LogUploader) upload(dialer *TunnelDialer) {
 	for {
 		sent, more := lu.uploadOneChunk(dialer)

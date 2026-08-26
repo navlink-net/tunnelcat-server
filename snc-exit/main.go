@@ -60,6 +60,7 @@ func main() {
 	startDataPlaneProber()
 	startExitLogUploader(*arbiterURL, *arbiterToken)
 	newBananameterProber(*arbiterURL, *arbiterToken, *bananameterNodeID, *bananameterNodeKey).Start()
+	newIPv6StateCache(*arbiterURL, *arbiterToken).Start()
 
 	logInfof("arbiter: heartbeat → %s", *arbiterURL)
 	// fingerprint is set after TLS config is resolved below; heartbeat is started there.

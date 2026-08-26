@@ -100,15 +100,11 @@ func deriveKey(salt byte) ([]byte, error) {
 //
 // The ciphertext decrypts to JSON-encoded KeyData.
 //
-// The payload contains a "sig" field: an Ed25519 signature by the arbiter
-// over the canonical JSON of the payload with "sig" omitted. The signature
-// is always verified; a missing, absent-pubkey, or invalid signature is a
-// hard error — this build does not accept the unsigned V1 (SNC\x01) format
-// at all. There is no migration path for it here: the private product's
-// client has one (silently re-issues a V2 key using the credentials
-// embedded in the old one), but that requires a live arbiter account behind
-// the key, which this open-source edition can't assume, so a self-hoster's
-// users must simply re-activate with a V2 key.
+// For V2 keys (magic SNC\x02) the payload contains a "sig" field: an Ed25519
+// signature by the arbiter over the canonical JSON of the payload with "sig"
+// omitted.  If ArbiterPubkey is set, the signature is verified; a missing or
+// invalid signature is a hard error.  If ArbiterPubkey is absent the signature
+// field is accepted without verification (dev / legacy mode).
 func ParseKeyString(ks string) (*KeyData, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(ks)
 	if err != nil {
@@ -121,10 +117,7 @@ func ParseKeyString(ks string) (*KeyData, error) {
 	}
 
 	magic := binary.BigEndian.Uint32(raw[:4])
-	if magic == keyMagicV1 {
-		return nil, errors.New("key: unsigned V1 keys are no longer accepted — please obtain a new activation key")
-	}
-	if magic != keyMagicV2 {
+	if magic != keyMagicV1 && magic != keyMagicV2 {
 		return nil, fmt.Errorf("key: bad magic %08x", magic)
 	}
 
@@ -154,9 +147,11 @@ func ParseKeyString(ks string) (*KeyData, error) {
 		return nil, errors.New("key: missing username")
 	}
 
-	// magic is always keyMagicV2 here (V1 was rejected above).
-	if err := verifyKeySignature(&kd); err != nil {
-		return nil, fmt.Errorf("key: signature: %w", err)
+	// V2 key: verify arbiter signature.
+	if magic == keyMagicV2 {
+		if err := verifyKeySignature(&kd); err != nil {
+			return nil, fmt.Errorf("key: signature: %w", err)
+		}
 	}
 
 	return &kd, nil

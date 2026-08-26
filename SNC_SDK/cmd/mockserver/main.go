@@ -5,11 +5,11 @@
 // Command mockserver is a local mock control/exit for testing SDK adapters
 // (and cmd/tunneld) with zero real credentials and zero network access.
 //
-// It implements just enough of tunnelcat-core's wire protocol to satisfy
+// It implements just enough of tunnelcat-server's wire protocol to satisfy
 // Authenticator.Login() (accepts any username/password/apiKey — this is a
 // mock, not an auth system) and one round of data-plane traffic, relaying
 // decrypted upload frames to the actual TCP target the client asked for.
-// The relay logic mirrors tunnelcat-core's own tunnel_test.go stub server,
+// The relay logic mirrors tunnelcat-server's own tunnel_test.go stub server,
 // built on the exported SessionKey/SealFrame/OpenFrame/ParseUploadFrame/
 // BuildUploadResponse helpers instead of reimplementing the framing.
 package main
@@ -26,7 +26,7 @@ import (
 	"sync"
 	"time"
 
-	core "github.com/kostiakhait/tunnelcat-core"
+	core "tunnel_cat/snc/core"
 )
 
 type loginRequest struct {
@@ -90,7 +90,7 @@ func (m *mockServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 // handleData handles the decoy upload endpoints, decrypting the frame,
 // relaying to the requested TCP target, and encrypting the ACK response.
-// Mirrors tunnelcat-core's tunnel_test.go newStubServer.
+// Mirrors tunnelcat-server's tunnel_test.go newStubServer.
 func (m *mockServer) handleData(w http.ResponseWriter, r *http.Request) {
 	token := r.Header.Get("X-Session")
 	if !m.validToken(token) {

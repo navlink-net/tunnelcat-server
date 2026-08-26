@@ -25,6 +25,9 @@ import (
 	utls "github.com/refraction-networking/utls"
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/crypto/chacha20poly1305"
+
+	"tunnel_cat/binlog"
+	"tunnel_cat/logevent"
 )
 
 const (
@@ -256,11 +259,11 @@ type Authenticator struct {
 	pendingNotifs []Notification
 	// transportFailureHook, if set, is called when a login attempt fails with
 	// an error attributable to the transport itself (see isTransportFailure)
-	// rather than a normal auth rejection -- lets a caller with its own pool
-	// of connections (e.g. a custom SetDialFunc transport) stop reusing a
-	// control whose session establishes fine but corrupts every actual
-	// exchange (confirmed possible via an ALPN mismatch, 2026-08-16), so it
-	// leaves rotation instead of looking permanently healthy forever.
+	// rather than a normal auth rejection. WildCat wires this to
+	// the relay pool's ReportStreamFailure so a control whose WLWTP session
+	// establishes fine but corrupts every actual exchange (confirmed
+	// possible via an ALPN mismatch, 2026-08-16) leaves rotation instead of
+	// looking permanently healthy forever.
 	transportFailureHook func()
 }
 
@@ -277,8 +280,8 @@ func (a *Authenticator) SetTransportFailureHook(fn func()) {
 // response (bad credentials, 404, etc). These are the error shapes an ALPN
 // mismatch produces (see snc-control/handler.go's serveRelayAPI fix,
 // 2026-08-16): the connection LOOKS fine at dial time but every request over
-// it fails this way, so callers use this to signal their own transport/pool
-// to stop reusing that connection instead of retrying blindly.
+// it fails this way, so callers use this to signal the transport (e.g.
+// the relay pool) to stop reusing that connection instead of retrying blindly.
 func isTransportFailure(err error) bool {
 	if err == nil {
 		return false
@@ -314,7 +317,7 @@ func (a *Authenticator) SetDialFunc(fn func(ctx context.Context, addr string) (n
 }
 
 // ClearDialFunc resets auth connections to direct TCP (removes any transport override).
-// Must be called when switching away from a custom SetDialFunc transport.
+// Must be called when switching away from WildCat mode.
 func (a *Authenticator) ClearDialFunc() {
 	a.client = &http.Client{
 		Timeout:   30 * time.Second,
@@ -951,7 +954,8 @@ type TunnelDialer struct {
 	rngMu           sync.Mutex // protects rng; multiple goroutines call send() concurrently
 	reAuthMu        sync.Mutex
 	streaming       bool
-	udpRelay        *UDPRelayConn                                                   // non-nil → use UDP transport for doPost (M4.5)
+	quicConn        *quicControlConn                                                // non-nil → this dialer's requests ride QUIC streams to control (see NewQUICRelayDialer)
+	udpRelay        *UDPRelayConn                                                   // non-nil → this dialer's requests ride a hole-punched UDP relay-peer connection (see NewUDPRelayDialer)
 	rawDialOverride atomic.Pointer[func(context.Context, string) (net.Conn, error)] // non-nil → overrides direct TCP dialer
 
 	// cancelCtx is cancelled when DataFailHook fires so all in-flight HTTP
@@ -1112,9 +1116,8 @@ func (td *TunnelDialer) SetRTTUpdateHook(fn func(serverURL string, rtt time.Dura
 
 // SetTransportFailHook registers a callback invoked every time doPost fails
 // with an error isTransportFailure classifies as the connection itself being
-// broken (as opposed to a normal control HTTP error) -- lets a caller with
-// its own connection pool react to a control whose session establishes fine
-// but corrupts every actual exchange (see isTransportFailure's doc comment).
+// broken (as opposed to a normal control HTTP error). WildCat wires this to
+// the relay pool's ReportStreamFailure -- see that method's doc comment.
 func (td *TunnelDialer) SetTransportFailHook(fn func()) {
 	td.hookMu.Lock()
 	td.onTransportFail = fn
@@ -1186,9 +1189,13 @@ func NewTunnelDialerPolling(auth *Authenticator) *TunnelDialer {
 }
 
 // NewUDPRelayDialer returns a polling TunnelDialer that sends all tunnel POST
-// requests over the hole-punched UDP relay connection instead of HTTP/TCP.
-// The relay peer transparently forwards each request to Control and returns the
-// response.  Streaming is disabled because UDP is datagram-oriented.
+// requests over a hole-punched UDP relay-PEER connection instead of HTTP/TCP.
+// This is for routing through another client acting as a relay hop
+// (RouterPath.UDPRelay / Authenticator.LoginViaUDP) -- a different thing from
+// the direct client<->control transport, which uses QUIC (see
+// NewQUICRelayDialer in quic_relay.go) since NewControlDialer replaced its
+// old SNCU-over-UDP fallback. Streaming is disabled because UDP is
+// datagram-oriented and the relay peer has no ordering guarantee to offer.
 func NewUDPRelayDialer(relay *UDPRelayConn, auth *Authenticator) *TunnelDialer {
 	td := newTunnelDialer(auth, false)
 	td.udpRelay = relay
@@ -1218,7 +1225,7 @@ func newTunnelDialer(auth *Authenticator, streaming bool) *TunnelDialer {
 }
 
 // SetDialFunc routes all new TCP connections through fn instead of direct TCP.
-// Lets a caller inject a custom dialer (e.g. an alternate transport).
+// Used by WildCat mode to inject a mux dialer.
 // The function is stored atomically; in-flight requests on the old path complete normally.
 func (td *TunnelDialer) SetDialFunc(fn func(ctx context.Context, addr string) (net.Conn, error)) {
 	td.rawDialOverride.Store(&fn)
@@ -1233,7 +1240,9 @@ func (td *TunnelDialer) ClearDialFunc() {
 // Dial opens a tunnel connection to target (host:port).
 func (td *TunnelDialer) Dial(target string) (net.Conn, error) {
 	connID := newConnID()
-	Log.Printf("tunnel: Dial %s connID=%.8s", target, connID)
+	logevent.Emit(binlog.TagTunnel, logevent.EventTunnelDialStart,
+		logevent.Str(logevent.AttrTarget, target),
+		logevent.Str(logevent.AttrConnId, fmt.Sprintf("%.8s", connID)))
 
 	send := func(s int64, payload []byte) ([]byte, error) {
 		path := tunnelPaths[td.rngIntn(len(tunnelPaths))]
@@ -1260,12 +1269,21 @@ func (td *TunnelDialer) Dial(target string) (net.Conn, error) {
 		}
 		resp, err := td.doPost(path, plain, true, true, timeout)
 		if err != nil {
-			Log.Printf("tunnel: POST error control=%s seq=%d target=%s: %v", td.auth.serverURL, s, target, err)
+			logevent.Emit(binlog.TagTunnel, logevent.EventTunnelPostResult,
+				logevent.Str(logevent.AttrControl, td.auth.serverURL),
+				logevent.Int(logevent.AttrReqSeq, s),
+				logevent.Str(logevent.AttrTarget, target),
+				logevent.Str(logevent.AttrResult, logevent.TunnelPostResultResultError),
+				logevent.Str("err", err.Error()))
 		} else {
 			if len(resp) > 0 {
 				TunnelMonitor.RecordTunnelRecv(connID, len(resp))
 			}
-			Log.Printf("tunnel: POST ok seq=%d target=%s payload=%dB", s, target, len(payload))
+			logevent.Emit(binlog.TagTunnel, logevent.EventTunnelPostResult,
+				logevent.Int(logevent.AttrReqSeq, s),
+				logevent.Str(logevent.AttrTarget, target),
+				logevent.Int(logevent.AttrPayloadBytes, int64(len(payload))),
+				logevent.Str(logevent.AttrResult, logevent.TunnelPostResultResultOk))
 		}
 		return resp, err
 	}
@@ -1320,7 +1338,10 @@ func (td *TunnelDialer) Dial(target string) (net.Conn, error) {
 		var httpErr *controlHTTPError
 		if !errors.As(err, &httpErr) {
 			for attempt := 1; attempt < 3 && err != nil && !errors.As(err, &httpErr); attempt++ {
-				Log.Printf("tunnel: Dial %s attempt %d failed (%v) — retrying", target, attempt, err)
+				logevent.Emit(binlog.TagTunnel, logevent.EventTunnelDialRetry,
+					logevent.Str(logevent.AttrTarget, target),
+					logevent.Int(logevent.AttrAttempt, int64(attempt)),
+					logevent.Str("err", err.Error()))
 				time.Sleep(300 * time.Millisecond)
 				resp, err = send(0, nil)
 				td.classifyDialErr(err)
@@ -1336,7 +1357,10 @@ func (td *TunnelDialer) Dial(target string) (net.Conn, error) {
 		conn.readBuf = append(conn.readBuf, resp...)
 		conn.readMu.Unlock()
 	}
-	Log.Printf("tunnel: Dial %s established connID=%.8s initial-resp=%dB", target, connID, len(resp))
+	logevent.Emit(binlog.TagTunnel, logevent.EventTunnelDialEstablished,
+		logevent.Str(logevent.AttrTarget, target),
+		logevent.Str(logevent.AttrConnId, fmt.Sprintf("%.8s", connID)),
+		logevent.Int(logevent.AttrInitialRespBytes, int64(len(resp))))
 	conn.seq.Store(1)
 	atomic.AddInt32(&td.activeConns, 1)
 	conn.onClose = func() { atomic.AddInt32(&td.activeConns, -1) }
@@ -1483,6 +1507,20 @@ func (td *TunnelDialer) recordDialOutcome(success bool) {
 		// Cancelling the dialer context would kill healthy in-flight uploads as collateral.
 		if dataFailFn != nil {
 			dataFailFn()
+		}
+		// QUIC-backed dialers additionally notify onUDPFailed (same hook name the
+		// old raw-UDP fallback used) so the router can force TCP-only for a TTL —
+		// see Router.MarkUDPDataFailed. Every platform's main_*.go already wires
+		// this hook; unlike the old UDP path, QUIC failures are detected through
+		// the same generic dial-outcome window as TCP, not a separate counter.
+		if td.quicConn != nil {
+			td.hookMu.Lock()
+			udpFailFn := td.onUDPFailed
+			td.onUDPFailed = nil // fire only once
+			td.hookMu.Unlock()
+			if udpFailFn != nil {
+				go udpFailFn()
+			}
 		}
 	}
 }
@@ -1771,14 +1809,14 @@ func (td *TunnelDialer) doPost(path string, plaintext []byte, allowRetry bool, r
 
 	if td.udpRelay != nil {
 		if td.udpRelay.Failed() {
-			// UDP channel has exceeded its error threshold — fire hook once and
-			// fall through to TCP for this and all subsequent calls.
+			// Relay-peer channel has exceeded its error threshold — fire hook
+			// once and fall through to TCP for this and all subsequent calls.
 			td.hookMu.Lock()
 			fn := td.onUDPFailed
 			td.onUDPFailed = nil // fire only once
 			td.hookMu.Unlock()
 			if fn != nil {
-				Log.Printf("tunnel: UDP relay failed — falling back to TCP, notifying router")
+				Log.Printf("tunnel: UDP relay-peer failed — falling back to TCP, notifying router")
 				go fn()
 			}
 		} else {
@@ -1796,6 +1834,7 @@ func (td *TunnelDialer) doPost(path string, plaintext []byte, allowRetry bool, r
 			if status != http.StatusOK {
 				return nil, fmt.Errorf("tunnel POST %s: %w", path, &controlHTTPError{status})
 			}
+			TunnelMonitor.RecordAnyResponse()
 			Log.Printf("tunnel: udp-relay response status=%d body=%dB", status, len(raw))
 			return parseResponse(key, raw)
 		}
@@ -1860,6 +1899,7 @@ func (td *TunnelDialer) doPost(path string, plaintext []byte, allowRetry bool, r
 	// Record full round-trip (request sent → response body received) as traffic RTT.
 	// Excludes jitter sleep and auth retries so only clean data-plane samples land here.
 	td.recordTrafficRTT(time.Since(t0))
+	TunnelMonitor.RecordAnyResponse()
 	Log.Printf("tunnel: post raw response status=%d body=%dB", resp.StatusCode, len(raw))
 	return parseResponse(key, raw)
 }

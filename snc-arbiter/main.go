@@ -69,7 +69,7 @@ func main() {
 	appsAssetsDir := flag.String("apps-assets-dir", "", "shared sshfs-mounted directory for app-store icons/binaries (e.g. /mnt/remote/navlink/apps/assets), also served as static files by the app host; empty = app submission uploads disabled")
 	contentDir := flag.String("content-dir", "", "directory mirrored to all clients via the content-manifest (torrent-like distribution); empty = disabled")
 	uploadKey := flag.String("upload-key", "", "secret key required to upload client binaries via /admin/downloads/upload (empty = require admin session only)")
-	peerArbiters := flag.String("peer-arbiters", "", "comma-separated base URLs of fellow arbiter cluster nodes (e.g. https://203.0.113.12) to replicate uploaded client binaries to; empty = no replication")
+	peerArbiters := flag.String("peer-arbiters", "", "comma-separated base URLs of fellow arbiter cluster nodes (e.g. https://167.233.213.155) to replicate uploaded client binaries to; empty = no replication")
 	appLogKey := flag.String("app-log-key", "", "bearer key embedded in client APKs for direct app-log upload via /api/log/app-upload (empty = disabled)")
 	bananameterClientKey := flag.String("bananameter-client-key", "", "bearer key embedded in every client build for /api/bananameter/client-result (empty = disabled)")
 	logUploadClientKey := flag.String("log-upload-client-key", "", "bearer key embedded in every client build for /api/log/client-upload (empty = disabled)")
@@ -84,6 +84,9 @@ func main() {
 	torrentDir := flag.String("torrent-dir", "", "directory with sync-and-publish.sh + torrent-seed-sync unit files; empty = torrent-seed step disabled")
 	blackbadgerBin := flag.String("blackbadger-bin", "", "path to the blackbadger binary; empty = blackbadger step disabled (control nodes only)")
 	blackbadgerKey := flag.String("blackbadger-key", "", "shared SNC key installed into every BlackBadger instance; empty = blackbadger step disabled")
+	torrentSeedManifestURL := flag.String("torrent-seed-manifest-url", "", "URL of the torrent-seed fleet's published manifest.json (client software magnets); empty = TorrentMagnets field disabled")
+	torrentSeedDataDir := flag.String("torrent-seed-data-dir", "", "TORRENT_DATA_DIR of a co-located torrent-seed.sh install (same value as that script's own TORRENT_DATA_DIR, e.g. /var/lib/torrent-seed) -- if set, this arbiter periodically writes its own signed manifest into <dir>/downloads/ and a matching .torrent into <dir>/torrents/ so the already-running transmission-daemon there picks it up and seeds it; empty = TorrentManifestMagnet field disabled")
+	torrentTrackersFile := flag.String("torrent-trackers-file", "", "path to torrent-seed.sh's tracker host list (same file as its own TRACKER_LIST_FILE, e.g. /etc/torrent-seed/trackers.txt, one host per line) -- used to build the announce-list for this arbiter's own manifest torrent; empty = manifest torrent has no announce-list (DHT/PEX only)")
 	flag.Parse()
 
 	if *authWith == "" {
@@ -133,6 +136,12 @@ func main() {
 	h.updateDir = *updateDir
 	h.appsAssetsDir = *appsAssetsDir
 	h.contentDir = *contentDir
+	h.torrentSeedManifestURL = *torrentSeedManifestURL
+	h.torrentSeedDataDir = *torrentSeedDataDir
+	h.torrentTrackersFile = *torrentTrackersFile
+	if h.torrentSeedManifestURL != "" || h.torrentSeedDataDir != "" {
+		h.startTorrentMagnets()
+	}
 	h.uploadKey = *uploadKey
 	for _, p := range strings.Split(*peerArbiters, ",") {
 		if p = strings.TrimSpace(p); p != "" {
@@ -146,6 +155,7 @@ func main() {
 	h.clientTelemetryKey = *clientTelemetryKey
 	h.notifier = newNotifier(db, signer)
 	h.loadNotificationsFromDB()
+	h.startWLWTPPortRotator()
 	h.StartLoadFactorTicker(5 * time.Minute)
 
 	// ── Node provisioner (SSH deploy) ─────────────────────────────────────────

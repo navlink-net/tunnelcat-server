@@ -55,7 +55,12 @@ type signedManifest struct {
 	Notifications  []Notification      `json:"notifications,omitempty"`    // advisory; not signed
 	NodeSNIs       map[string][]string `json:"node_snis,omitempty"`        // advisory; addr → SNI rotation list
 	Excluded       []string            `json:"excluded,omitempty"`         // advisory; addrs clients must skip (decommissioned nodes)
+	NodeWLWTPPorts map[string][]int    `json:"node_wlwtp_ports,omitempty"` // advisory; addr → dynamic WLWTP UDP ports
 	IPv6Enabled    *bool               `json:"ipv6_enabled,omitempty"`     // advisory; nil = arbiter said nothing, keep local default. Admin kill switch -- see snc-arbiter/admin_ipv6.go
+	NavlinkMirrors []string            `json:"navlink_mirrors,omitempty"`  // advisory; addrs (host:port) of live navlink.net-mirror forwarders
+	TorrentEnabled *bool               `json:"torrent_enabled,omitempty"`  // advisory; nil = arbiter said nothing, keep local default (false). Admin kill switch for the torrent engine -- see snc-arbiter/admin_torrent_enabled.go and this package's TorrentGate.
+	TorrentMagnets        map[string]string `json:"torrent_magnets,omitempty"`         // advisory; product/platform slug -> magnet URI for client software already seeded by the torrent-seed fleet
+	TorrentManifestMagnet string            `json:"torrent_manifest_magnet,omitempty"` // advisory; magnet for the arbiter's own last-published signed manifest torrent -- a fallback recovery path when no control/exit is reachable at all
 }
 
 // Discoverer fetches the signed control-node manifest from the control's relay
@@ -76,6 +81,7 @@ type Discoverer struct {
 	controls       []string            // current list of control addresses
 	regions        map[string]string   // addr → ISO region code (advisory, from arbiter)
 	nodeSNIs       map[string][]string // addr → SNI rotation list (advisory, from arbiter)
+	nodeWLWTPPorts map[string][]int    // addr → dynamic WLWTP UDP ports (advisory, from arbiter)
 	loadFactors    map[string]float64  // addr → bonus/malus coefficient (advisory, from the *signed* nodes list --
 	// see manifestNode.Load; not itself covered by a separate signature, but
 	// signed as part of the same node entry as rtt_ms/fingerprint)
@@ -85,6 +91,7 @@ type Discoverer struct {
 	// makes pinning against it meaningful. See FingerprintFor/tls.go's
 	// verifyPeerCertFingerprint for where this is actually enforced.
 	notifications   []Notification       // pending broadcast notifications (advisory, from arbiter)
+	navlinkMirrors  []string             // addrs (host:port) of live navlink.net-mirror forwarders (advisory, from arbiter)
 	onChange        func([]string)       // called when controls change; may be nil
 	onFetch         func([]byte, int64)  // called after each successful fetch (raw, ts)
 	onNotifications func([]Notification) // called when new notifications arrive; may be nil
@@ -111,6 +118,25 @@ type Discoverer struct {
 	// they had. Non-nil is the arbiter's authoritative say on whether any
 	// exit in the current fleet can route IPv6 at all; see admin_ipv6.go.
 	ipv6Enabled *bool
+
+	// torrentEnabled mirrors the manifest's advisory torrent_enabled kill
+	// switch (see admin_torrent_enabled.go). nil = arbiter said nothing;
+	// non-nil is the fleet-wide half of the torrent feature's double gate --
+	// see TorrentGate in torrent.go, which also requires the local settings
+	// toggle to be on. Unlike ipv6Enabled, false is the safe default when
+	// nothing is known yet, not true.
+	torrentEnabled *bool
+
+	// torrentMagnets/manifestTorrentMagnet mirror the manifest's advisory
+	// torrent_magnets/torrent_manifest_magnet fields (see
+	// snc-arbiter/torrent_magnets.go). Set as a side effect inside verify()
+	// rather than threaded through its positional return tuple (already 10
+	// values deep) -- both are purely additive, best-effort advisory data
+	// with no bearing on whether a manifest is otherwise valid, so they
+	// don't need the same all-or-nothing handling as the control address
+	// list itself.
+	torrentMagnets        map[string]string
+	manifestTorrentMagnet string
 
 	// manifestSource tracks how the current manifest was obtained:
 	// 0 = not loaded, 1 = loaded from on-disk cache, 2 = fetched live this session.
@@ -207,7 +233,7 @@ func ReadManifestCacheControlsAndRegions(cacheFile, pubkeyHex string) ([]string,
 			d.pubkey = ed25519.PublicKey(b)
 		}
 	}
-	addrs, regions, _, _, _, _, _, err := d.verify(plain)
+	addrs, regions, _, _, _, _, _, _, _, _, err := d.verify(plain)
 	if err != nil {
 		return nil, nil
 	}
@@ -251,11 +277,11 @@ func (d *Discoverer) LoadCached() error {
 		Log.Printf("discovery: cache decrypt failed (%v) — trying legacy plaintext", err)
 		plain = enc
 	}
-	addrs, regions, notifs, snis, fingerprints, loadFactors, ipv6Enabled, err := d.verify(plain)
+	addrs, regions, notifs, snis, wlwtpPorts, fingerprints, loadFactors, ipv6Enabled, navlinkMirrors, torrentEnabled, err := d.verify(plain)
 	if err != nil {
 		return fmt.Errorf("discovery: cached manifest invalid: %w", err)
 	}
-	d.setControls(addrs, regions, notifs, snis, fingerprints, loadFactors, ipv6Enabled)
+	d.setControls(addrs, regions, notifs, snis, wlwtpPorts, fingerprints, loadFactors, ipv6Enabled, navlinkMirrors, torrentEnabled)
 	atomic.StoreInt32(&d.manifestSource, 1)
 	Log.Printf("discovery: loaded %d controls from cache", len(addrs))
 	return nil
@@ -327,6 +353,16 @@ func (d *Discoverer) IPv6Enabled() *bool {
 	return d.ipv6Enabled
 }
 
+// TorrentEnabled returns the arbiter's current advisory torrent-feature
+// kill switch: nil = no opinion yet, non-nil = the fleet's current say on
+// whether the client-side BitTorrent engine may run. See the
+// torrentEnabled field doc comment and TorrentGate in torrent.go.
+func (d *Discoverer) TorrentEnabled() *bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.torrentEnabled
+}
+
 // ipv6TunnelDisabled mirrors the arbiter's ipv6_enabled kill switch as a
 // process-global flag, updated by every Discoverer's setControls regardless
 // of which one is asking. Global (rather than requiring every platform's
@@ -355,6 +391,22 @@ func IPv6TunnelDisabled() bool {
 	return ipv6TunnelDisabled.Load()
 }
 
+// torrentManifestAllowed mirrors the arbiter's torrent_enabled kill switch
+// as a process-global flag, same pattern as ipv6TunnelDisabled above and for
+// the same reason -- the torrent engine (torrent.go) is constructed far from
+// wherever the platform code built its Discoverer. Unlike IPv6, false is the
+// safe default here (see TorrentGate's doc comment), so this starts false
+// and only ever flips true once a manifest explicitly says so.
+var torrentManifestAllowed atomic.Bool
+
+// TorrentManifestAllowed reports the arbiter's last-known say on the
+// torrent feature's fleet-wide kill switch. This is only half of
+// TorrentGate.Allowed() -- the other half is the local per-install user
+// setting, which TorrentGate itself tracks since core has no way to know it.
+func TorrentManifestAllowed() bool {
+	return torrentManifestAllowed.Load()
+}
+
 // LoadFactors returns a snapshot of the current addr → load-factor map.
 // Advisory (signed as part of each node entry, but not independently
 // authenticated) -- see Router.SetLoadFactors, which treats a missing or
@@ -372,6 +424,19 @@ func (d *Discoverer) LoadFactors() map[string]float64 {
 	return out
 }
 
+// NavlinkMirrors returns the most recently learned list of live navlink.net
+// mirror forwarder addresses (host:port), or nil if none are known yet.
+func (d *Discoverer) NavlinkMirrors() []string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if len(d.navlinkMirrors) == 0 {
+		return nil
+	}
+	out := make([]string, len(d.navlinkMirrors))
+	copy(out, d.navlinkMirrors)
+	return out
+}
+
 // SNIFor returns a randomly chosen SNI hostname for the given control addr
 // (host:port). Returns "" if no SNI list is configured for that addr.
 func (d *Discoverer) SNIFor(addr string) string {
@@ -382,6 +447,19 @@ func (d *Discoverer) SNIFor(addr string) string {
 		return ""
 	}
 	return snis[rand.Intn(len(snis))]
+}
+
+// WLWTPPorts returns a copy of the dynamic WLWTP port list for the given
+// control address, or nil if none have been received from the arbiter yet.
+func (d *Discoverer) WLWTPPorts(ctrlAddr string) []int {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if p := d.nodeWLWTPPorts[ctrlAddr]; len(p) > 0 {
+		out := make([]int, len(p))
+		copy(out, p)
+		return out
+	}
+	return nil
 }
 
 // UseAsSNIProvider registers this discoverer as the process-wide SNI source
@@ -476,11 +554,11 @@ func (d *Discoverer) Notifications() []Notification {
 // Returns an error if verification fails; the caller should not apply or
 // re-gossip invalid data.
 func (d *Discoverer) InjectRaw(data []byte) error {
-	addrs, regions, notifs, snis, fingerprints, loadFactors, ipv6Enabled, err := d.verify(data)
+	addrs, regions, notifs, snis, wlwtpPorts, fingerprints, loadFactors, ipv6Enabled, navlinkMirrors, torrentEnabled, err := d.verify(data)
 	if err != nil {
 		return fmt.Errorf("discovery: inject verify: %w", err)
 	}
-	d.setControls(addrs, regions, notifs, snis, fingerprints, loadFactors, ipv6Enabled)
+	d.setControls(addrs, regions, notifs, snis, wlwtpPorts, fingerprints, loadFactors, ipv6Enabled, navlinkMirrors, torrentEnabled)
 	if d.cacheFile != "" {
 		d.persist(data)
 	}
@@ -575,12 +653,12 @@ func (d *Discoverer) fetchAndApply() {
 		}
 		return
 	}
-	addrs, regions, notifs, snis, fingerprints, loadFactors, ipv6Enabled, err := d.verify(data)
+	addrs, regions, notifs, snis, wlwtpPorts, fingerprints, loadFactors, ipv6Enabled, navlinkMirrors, torrentEnabled, err := d.verify(data)
 	if err != nil {
 		Log.Printf("discovery: verify failed: %v", err)
 		return
 	}
-	d.setControls(addrs, regions, notifs, snis, fingerprints, loadFactors, ipv6Enabled)
+	d.setControls(addrs, regions, notifs, snis, wlwtpPorts, fingerprints, loadFactors, ipv6Enabled, navlinkMirrors, torrentEnabled)
 	atomic.StoreInt32(&d.manifestSource, 2)
 	if d.cacheFile != "" {
 		d.persist(data)
@@ -695,7 +773,7 @@ func (d *Discoverer) ProbeManifest(timeout time.Duration) (nodes int, err error)
 	if err != nil {
 		return 0, err
 	}
-	addrs, _, _, _, _, _, _, err := d.verify(data)
+	addrs, _, _, _, _, _, _, _, _, _, err := d.verify(data)
 	if err != nil {
 		return 0, fmt.Errorf("verify: %w (raw size=%d)", err, len(data))
 	}
@@ -704,15 +782,16 @@ func (d *Discoverer) ProbeManifest(timeout time.Duration) (nodes int, err error)
 
 // verify parses and optionally verifies the Ed25519 signature on a raw manifest.
 // Returns control addresses, advisory regions, advisory notifications, advisory
-// node SNI lists, per-addr cert fingerprints (signed, not advisory), advisory
-// load factors, and the advisory ipv6Enabled kill switch on success.
-func (d *Discoverer) verify(data []byte) ([]string, map[string]string, []Notification, map[string][]string, map[string]string, map[string]float64, *bool, error) {
+// node SNI lists, advisory WLWTP port maps, per-addr cert fingerprints
+// (signed, not advisory), advisory load factors, the advisory ipv6Enabled
+// kill switch, and the advisory navlink.net-mirror forwarder addresses on success.
+func (d *Discoverer) verify(data []byte) ([]string, map[string]string, []Notification, map[string][]string, map[string][]int, map[string]string, map[string]float64, *bool, []string, *bool, error) {
 	var m signedManifest
 	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("parse: %w", err)
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("parse: %w", err)
 	}
 	if m.Type != "manifest" {
-		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("unexpected manifest type %q", m.Type)
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("unexpected manifest type %q", m.Type)
 	}
 
 	if d.pubkey != nil {
@@ -726,7 +805,7 @@ func (d *Discoverer) verify(data []byte) ([]string, map[string]string, []Notific
 
 		sigBytes, err := base64.RawURLEncoding.DecodeString(m.Sig)
 		if err != nil || !ed25519.Verify(d.pubkey, canonical, sigBytes) {
-			return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("signature verification failed")
+			return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("signature verification failed")
 		}
 	} else {
 		Log.Printf("discovery: WARNING — arbiter pubkey not set, skipping signature verification")
@@ -755,26 +834,54 @@ func (d *Discoverer) verify(data []byte) ([]string, map[string]string, []Notific
 		}
 	}
 	if len(addrs) == 0 {
-		return nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("manifest contains no control nodes")
+		return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, fmt.Errorf("manifest contains no control nodes")
 	}
-	return addrs, m.Regions, m.Notifications, m.NodeSNIs, fingerprints, loadFactors, m.IPv6Enabled, nil
+	d.mu.Lock()
+	d.torrentMagnets = m.TorrentMagnets
+	d.manifestTorrentMagnet = m.TorrentManifestMagnet
+	d.mu.Unlock()
+	return addrs, m.Regions, m.Notifications, m.NodeSNIs, m.NodeWLWTPPorts, fingerprints, loadFactors, m.IPv6Enabled, m.NavlinkMirrors, m.TorrentEnabled, nil
+}
+
+// TorrentMagnets returns the arbiter's last-known map of client-software
+// magnets (product/platform slug -> magnet URI), or nil if none have been
+// received yet. See snc-arbiter/torrent_magnets.go.
+func (d *Discoverer) TorrentMagnets() map[string]string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.torrentMagnets
+}
+
+// ManifestTorrentMagnet returns the magnet for the arbiter's own
+// last-published signed-manifest torrent, or "" if none is known yet.
+func (d *Discoverer) ManifestTorrentMagnet() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.manifestTorrentMagnet
 }
 
 // setControls atomically replaces the control list, regions, notifications,
-// node SNI lists, cert fingerprints, load factors, and the ipv6Enabled kill
-// switch, then fires callbacks.
-func (d *Discoverer) setControls(addrs []string, regions map[string]string, notifs []Notification, snis map[string][]string, fingerprints map[string]string, loadFactors map[string]float64, ipv6Enabled *bool) {
+// node SNI lists, WLWTP port assignments, cert fingerprints, load factors,
+// the ipv6Enabled kill switch, the navlink.net-mirror forwarder list, and
+// the torrentEnabled kill switch, then fires callbacks.
+func (d *Discoverer) setControls(addrs []string, regions map[string]string, notifs []Notification, snis map[string][]string, wlwtpPorts map[string][]int, fingerprints map[string]string, loadFactors map[string]float64, ipv6Enabled *bool, navlinkMirrors []string, torrentEnabled *bool) {
 	d.mu.Lock()
 	changed := !stringSliceEqual(d.controls, addrs)
 	d.controls = addrs
 	d.regions = regions
 	d.notifications = notifs
 	d.nodeSNIs = snis
+	d.nodeWLWTPPorts = wlwtpPorts
 	d.fingerprints = fingerprints
 	d.loadFactors = loadFactors
 	d.ipv6Enabled = ipv6Enabled
+	d.navlinkMirrors = navlinkMirrors
+	d.torrentEnabled = torrentEnabled
 	if ipv6Enabled != nil {
 		ipv6TunnelDisabled.Store(!*ipv6Enabled)
+	}
+	if torrentEnabled != nil {
+		torrentManifestAllowed.Store(*torrentEnabled)
 	}
 	cbNotif := d.onNotifications
 	// Keep serverURLs in sync with the full control list so future fetch()

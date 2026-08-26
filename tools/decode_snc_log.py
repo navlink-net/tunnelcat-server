@@ -38,6 +38,7 @@ Usage:
     python decode_snc_log.py snc_lifecycle.log                # decode a single file to stdout
     python decode_snc_log.py snc_lifecycle.log -o out.log     # decode a single file to a path
     python decode_snc_log.py snc-logs.zip --list-tags         # see which topics are present
+    python decode_snc_log.py snc-logs.zip --tag wildcat       # only WildCat-transport lines
     python decode_snc_log.py snc-logs.zip --tag socks5 --tag bypass -o vpn-only.zip
 
 A file/entry that isn't binlog-framed at all (e.g. today's KotlinLog/SwiftLog
@@ -57,6 +58,15 @@ import sys
 import zipfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    from logevent_schema_generated import EVENTS as _KNOWN_EVENTS  # type: ignore
+except ImportError:
+    # Generated file missing (gen.py never run) -- structured records still
+    # decode, just rendered with the event's raw numeric id instead of its
+    # name, never silently dropped. See render_structured_payload.
+    _KNOWN_EVENTS = {}
+
 START_MAGIC = 0xC5A7
 END_MAGIC = 0x7A5C
 MIN_RECORD_LEN = 2 + 1 + 1 + 2 + 2  # start + tag + shortest varint + crc + end
@@ -68,9 +78,10 @@ TAG_NAMES = {
     1: "tunnel",
     2: "socks5",
     3: "bypass",
-    4: "upload",
-    5: "update",
-    6: "system",
+    4: "wildcat",
+    5: "upload",
+    6: "update",
+    7: "system",
 }
 TAG_NAME_TO_ID = {name: tag for tag, name in TAG_NAMES.items()}
 
@@ -148,6 +159,168 @@ def _decode_one_record(b: bytes) -> tuple[int | None, bytes | None, int]:
     return tag, b[pos:body_end], body_end + 4
 
 
+# ── Structured event records (binlog.FormatStructured payloads) ────────────
+# See tunnel_cat/binlog's PayloadFormat doc comment and tunnel_cat/logevent's
+# package doc comment -- payload = [1B format marker][format-specific
+# content]. FORMAT_TEXT payloads are today's plain text (marker stripped);
+# FORMAT_STRUCTURED payloads are [4B event id][CBOR attribute map]. A
+# payload with no recognized marker byte predates this convention and is
+# implicitly FORMAT_TEXT in full, same fallback binlog.go's own decoder uses.
+FORMAT_TEXT = 0x00
+FORMAT_STRUCTURED = 0x01
+
+
+class _CBORError(Exception):
+    pass
+
+
+def _cbor_decode_value(data: bytes, pos: int) -> tuple[object, int]:
+    """Minimal recursive CBOR (RFC 8949) decoder covering exactly the value
+    types tunnel_cat/logevent's Emit ever produces: unsigned/negative
+    integers, text strings, booleans/null, and maps (whose values are, in
+    turn, any of those). No external CBOR dependency for a tool meant to run
+    standalone against a locally-opened file -- deliberately hand-rolled,
+    same style as this file's own CRC16 table, and deliberately narrow: an
+    encountered major type outside this set raises _CBORError rather than
+    guessing, so an encoding-side change that outgrows this decoder fails
+    loudly instead of silently mis-rendering."""
+    if pos >= len(data):
+        raise _CBORError("truncated")
+    head = data[pos]
+    major = head >> 5
+    info = head & 0x1F
+    pos += 1
+
+    def read_uint(info: int, pos: int) -> tuple[int, int]:
+        if info < 24:
+            return info, pos
+        sizes = {24: 1, 25: 2, 26: 4, 27: 8}
+        if info not in sizes:
+            raise _CBORError(f"unsupported additional info {info}")
+        n = sizes[info]
+        if pos + n > len(data):
+            raise _CBORError("truncated length")
+        val = int.from_bytes(data[pos : pos + n], "big")
+        return val, pos + n
+
+    if major == 0:  # unsigned int
+        val, pos = read_uint(info, pos)
+        return val, pos
+    if major == 1:  # negative int
+        val, pos = read_uint(info, pos)
+        return -1 - val, pos
+    if major == 3:  # text string
+        length, pos = read_uint(info, pos)
+        if pos + length > len(data):
+            raise _CBORError("truncated string")
+        return data[pos : pos + length].decode("utf-8", errors="replace"), pos + length
+    if major == 5:  # map
+        count, pos = read_uint(info, pos)
+        result: dict[object, object] = {}
+        for _ in range(count):
+            key, pos = _cbor_decode_value(data, pos)
+            val, pos = _cbor_decode_value(data, pos)
+            result[key] = val
+        return result, pos
+    if major == 7:  # simple/float
+        if info == 20:
+            return False, pos
+        if info == 21:
+            return True, pos
+        if info == 22:
+            return None, pos
+        raise _CBORError(f"unsupported simple value {info}")
+    raise _CBORError(f"unsupported major type {major}")
+
+
+def cbor_decode_map(data: bytes) -> dict:
+    """Decodes data as one top-level CBOR map. Raises _CBORError on anything
+    else (including trailing garbage) -- callers treat that as "couldn't
+    render this event's attributes", never as "rendered wrong"."""
+    value, pos = _cbor_decode_value(data, 0)
+    if not isinstance(value, dict):
+        raise _CBORError(f"top-level CBOR value is {type(value).__name__}, want map")
+    return value
+
+
+def render_structured_payload(content: bytes) -> bytes:
+    """content is everything after the FORMAT_STRUCTURED marker byte:
+    [4B event id][CBOR map]. Renders as `[event.name] key=value key=value\\n`
+    -- close to today's free-text shape on purpose, so existing grep habits
+    against decoded logs keep working across the format-0x00/0x01 boundary
+    (see the design plan's no-analyzability-loss review). ts is rendered
+    first as a real timestamp (not raw millis) to match free-text lines'
+    existing leading-timestamp convention; seq follows; every other key —
+    known to the schema or not — is rendered in schema-declared order first,
+    then any remaining ad hoc keys the schema doesn't know about, so nothing
+    a call site added on the fly is ever hidden from decoded output.
+    Never raises -- a malformed/truncated structured record renders as a
+    `[decode-error]` line with the raw hex instead of vanishing, so decoding
+    one bad record never silently drops it from the output.
+    """
+    import datetime
+
+    try:
+        if len(content) < 4:
+            raise _CBORError("payload shorter than event id")
+        event_id = int.from_bytes(content[:4], "big")
+        attrs = cbor_decode_map(content[4:])
+
+        name, known_fields = _KNOWN_EVENTS.get(event_id, (f"unknown-event-{event_id}", []))
+
+        ts_ms = attrs.pop("ts", None)
+        seq = attrs.pop("seq", None)
+        ts_str = ""
+        if isinstance(ts_ms, (int, float)):
+            ts_str = datetime.datetime.fromtimestamp(ts_ms / 1000, tz=datetime.timezone.utc).strftime(
+                "%Y/%m/%d %H:%M:%S.%f"
+            )[:-3]
+
+        def fmt_val(v: object) -> str:
+            # bool before int (bool is an int subclass in Python) -- lowercase
+            # true/false matches the free-text convention every existing line
+            # already used, not Python's capitalized True/False.
+            if isinstance(v, bool):
+                return "true" if v else "false"
+            if isinstance(v, str):
+                return repr(v)
+            return str(v)
+
+        parts = [f"[{name}]"]
+        if seq is not None:
+            parts.append(f"seq={seq}")
+        rendered_keys = set()
+        for field_name, _field_type in known_fields:
+            if field_name in attrs:
+                parts.append(f"{field_name}={fmt_val(attrs[field_name])}")
+                rendered_keys.add(field_name)
+        for k, v in attrs.items():
+            if k not in rendered_keys:
+                parts.append(f"{k}={fmt_val(v)}")  # ad hoc key, not in the schema -- still shown
+        line = ts_str + " " + " ".join(parts) if ts_str else " ".join(parts)
+        return (line + "\n").encode("utf-8")
+    except _CBORError as e:
+        return f"[decode-error] structured record: {e} (raw hex: {content.hex()})\n".encode("utf-8")
+
+
+def render_payload(payload: bytes) -> bytes:
+    """Renders one record's payload as readable text regardless of which
+    format wrote it -- format-0x00/legacy-unmarked payloads pass through as
+    plain text unchanged, format-0x01 payloads render via
+    render_structured_payload. This is the single point decode()/
+    maybe_decode_file() call so both formats always print as readable lines
+    in one pass, never requiring the caller to care which format a given
+    record used."""
+    if not payload:
+        return payload
+    marker = payload[0]
+    if marker == FORMAT_STRUCTURED:
+        return render_structured_payload(payload[1:])
+    if marker == FORMAT_TEXT:
+        return payload[1:]
+    return payload  # no recognized marker: pre-marker-era record, already plain text in full
+
+
 def decode_records(data: bytes) -> tuple[list[tuple[int, bytes]], int]:
     """Returns (list of (tag, payload), corrupt_record_count). Mirrors
     binlog.DecodeRecords exactly -- this is what topic filtering (--tag)
@@ -173,13 +346,13 @@ def decode_records(data: bytes) -> tuple[list[tuple[int, bytes]], int]:
 def decode(data: bytes, tags: set[int] | None = None) -> tuple[bytes, int]:
     """Returns (decoded_text, corrupt_record_count). Mirrors binlog.Decode
     when tags is None (every record included); when tags is given, only
-    records whose tag is in the set are kept -- e.g. tags={TAG_NAME_TO_ID['bypass']}
-    to look only at bypass-routing lines."""
+    records whose tag is in the set are kept -- e.g. tags={TAG_NAME_TO_ID['wildcat']}
+    to look only at WildCat-transport lines."""
     records, corrupt = decode_records(data)
     out = bytearray()
     for tag, payload in records:
         if tags is None or tag in tags:
-            out += payload
+            out += render_payload(payload)
     return bytes(out), corrupt
 
 
@@ -240,7 +413,7 @@ def maybe_decode_file(name: str, data: bytes, tags: set[int] | None = None) -> t
     out = bytearray()
     for tag, payload in records:
         if tags is None or tag in tags:
-            out += payload
+            out += render_payload(payload)
     return bytes(out), True, corrupt
 
 

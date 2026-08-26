@@ -5,6 +5,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"sync"
 )
@@ -74,4 +75,13 @@ func (h *handler) adminIPv6Toggle(w http.ResponseWriter, r *http.Request) {
 	}
 	logInfof("admin: IPv6 %s by %s", action, who)
 	http.Redirect(w, r, "/admin?flash=IPv6+"+action, http.StatusSeeOther)
+}
+
+// apiIPv6Enabled handles GET /api/ipv6-enabled -- polled by exit/control
+// nodes so they can disable IPv6 in their own OS when the admin flips this
+// off fleet-wide, not just leave it to client-side routing. See
+// snc-exit/ipv6_state.go and snc-control/ipv6_state.go.
+func (h *handler) apiIPv6Enabled(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"enabled": h.ipv6Enabled()}) //nolint:errcheck
 }

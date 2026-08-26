@@ -1,7 +1,7 @@
 <!--
-Copyright (C) Konstantin Khait & Claude Code
-For IT Partners Solutions and Freedom and Rights
-2026
+The Tunnel Cat Project
+Copyright (C) NavLink, 2026
+Лицензировано под лицензией Apache 2.0
 -->
 
 # Swift SDK quickstart

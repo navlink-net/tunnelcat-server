@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"time"
 )
@@ -90,22 +91,81 @@ type SOCKS5Server struct {
 	// QUIC/HTTP3 apps fall back to TLS/TCP. Enabled automatically for RU/CN regions
 	// where QUIC-over-TCP-tunnel causes head-of-line blocking and poor media quality.
 	BlockQUIC bool
+	// WildcatDNS: when true, UDP ASSOCIATE sessions send DNS queries via the
+	// protected bypass socket directly instead of through the WildCat relay.
+	// Left in place but no platform sets this to true any more (2026-08-12):
+	// it dates from the original Yandex-Disk-backed WildCat, where tunneling
+	// DNS genuinely wasn't viable, and got carried forward unchanged into the
+	// third-party relay backend that replaced it -- where the opposite is true: DNS
+	// must go through the tunnel like everything else, or any destination
+	// that's blocked by DNS simply stops working. the relay's own domains don't need
+	// this flag; they're exempted separately via WildcatDirectHosts (TCP) and
+	// a routes bypass on their resolved IPs (independent of DNS routing).
+	WildcatDNS bool
+	// WildcatMode: when true, the general country/CIDR bypass (bypass.ShouldBypass)
+	// is never consulted for TCP CONNECT -- every destination tunnels through the
+	// WLWTP camouflage relay except the explicit exceptions in WildcatDirectHosts.
+	// bypass itself is NOT nil'd out in this mode in case WildcatDNS above is
+	// ever set again. This flag only gates the TCP CONNECT decision.
+	WildcatMode bool
+	// WildcatDirectHosts: exact hostnames that dial directly for TCP CONNECT
+	// even in WildCat mode (e.g. the relay's own domains) -- content that needs no
+	// concealment and pays the camouflage relay's ~1s RTT tax on every request
+	// for nothing. Matched against a literal domain target, or for an IP
+	// target, the FQDN last seen resolving to it via GlobalDNSCache. This is
+	// deliberately separate from bypass.ShouldBypass()'s country/CIDR logic --
+	// WildCat's general policy stays "tunnel everything" (see WildcatMode);
+	// this is a narrow, explicit exception list, not a policy change.
+	WildcatDirectHosts []string
+	dialFn             func(ctx context.Context, target string) (net.Conn, error)
+
 	// RealtimeUDPDialer: experimental (2026-08-13 trial, Android only for now).
 	// When set, non-DNS UDP ASSOCIATE traffic (voice/video call media, games,
 	// any general UDP) pins to this dedicated dialer instead of picking from
-	// the shared pool -- it must be a dialer whose TunnelDialer.udpRelay is a
-	// direct (non-relay-peer) native UDP connection to the control node
-	// (core.NewUDPControlConn + NewUDPRelayDialer), so doPost's existing
-	// UDP-relay path carries this traffic instead of one HTTP POST per
-	// datagram. Two problems this targets at once: (1) HTTP/2-over-TCP's
-	// head-of-line blocking is gone for this traffic since native UDP has no
-	// such ordering guarantee to enforce, and (2) it no longer shares an
-	// HTTP/2 connection (and TCP congestion window) with unrelated DNS/bulk
-	// traffic on the same control. Falls back to the normal pool automatically
-	// if this dialer's udpRelay reports Failed() (already-existing keepalive/
-	// failure detection, see udp_relay.go) -- nil (the default) leaves every
-	// platform's behavior completely unchanged.
+	// the shared pool -- it must be a dialer whose TunnelDialer.quicConn is a
+	// direct QUIC connection to the control node (core.NewQUICRelayDialer),
+	// so requests ride independent QUIC streams instead of one HTTP POST per
+	// datagram sharing a single TCP connection. Two problems this targets at
+	// once: (1) HTTP/2-over-TCP's head-of-line blocking is gone for this
+	// traffic since each datagram's request gets its own QUIC stream, and
+	// (2) it no longer shares a TCP connection (and congestion window) with
+	// unrelated DNS/bulk traffic on the same control. Falls back to the
+	// normal pool automatically if this dialer's quicConn reports Failed()
+	// (see quic_relay.go) -- nil (the default) leaves every platform's
+	// behavior completely unchanged.
 	RealtimeUDPDialer *TunnelDialer
+}
+
+// isWildcatDirectHost reports whether target matches one of WildcatDirectHosts.
+func (s *SOCKS5Server) isWildcatDirectHost(target string) bool {
+	if len(s.WildcatDirectHosts) == 0 {
+		return false
+	}
+	host, _, err := net.SplitHostPort(target)
+	if err != nil {
+		host = target
+	}
+	matches := func(h string) bool {
+		h = strings.ToLower(strings.TrimSuffix(h, "."))
+		for _, d := range s.WildcatDirectHosts {
+			if h == d {
+				return true
+			}
+		}
+		return false
+	}
+	if net.ParseIP(host) == nil {
+		result := matches(host)
+		Log.Printf("socks5: isWildcatDirectHost target=%s host=%s (literal) -> %v list=%v", target, host, result, s.WildcatDirectHosts)
+		return result
+	}
+	if fqdn := GlobalDNSCache.Get(host); fqdn != "" {
+		result := matches(fqdn)
+		Log.Printf("socks5: isWildcatDirectHost target=%s host=%s fqdn=%s (via DNS cache) -> %v list=%v", target, host, fqdn, result, s.WildcatDirectHosts)
+		return result
+	}
+	Log.Printf("socks5: isWildcatDirectHost target=%s host=%s -> false (no FQDN in GlobalDNSCache for this IP)", target, host)
+	return false
 }
 
 // NewSOCKS5Server creates a server bound to addr using a single dialer.
@@ -123,6 +183,13 @@ func NewSOCKS5ServerWithBypass(addr string, dialer *TunnelDialer, bypass *Bypass
 // the pool.  Use this to enable the multi-control parallel serving policy.
 func NewSOCKS5ServerWithPool(addr string, pool *DialerPool, bypass *BypassManager) *SOCKS5Server {
 	return &SOCKS5Server{addr: addr, pool: pool, bypass: bypass, limiter: newConnLimiter(socks5PerIPLimit)}
+}
+
+// NewSOCKS5ServerWithDialFunc creates a SOCKS5 server that uses dialFn for
+// every CONNECT request instead of a DialerPool. Used by WildCat mode where
+// the MuxPool provides the dial function.
+func NewSOCKS5ServerWithDialFunc(dialFn func(ctx context.Context, target string) (net.Conn, error)) *SOCKS5Server {
+	return &SOCKS5Server{dialFn: dialFn, limiter: newConnLimiter(socks5PerIPLimit)}
 }
 
 // ListenAndServe binds to s.addr and starts accepting SOCKS5 connections.
@@ -253,6 +320,12 @@ func (s *SOCKS5Server) handleConnect(c net.Conn, target string) {
 	// via the original NIC so that printers, routers, and other local devices
 	// remain reachable while the tunnel is active.
 	//
+	// WildCat mode (s.WildcatMode) never consults the general country/CIDR
+	// bypass — every destination tunnels through the mux regardless of
+	// country. The only exceptions are LAN (never tunnelable at all) and the
+	// explicit WildcatDirectHosts allowlist — a narrow, separate
+	// mechanism, not a relaxation of the "tunnel everything" policy.
+	//
 	// For LAN addresses the tunnel is never an option — fail hard.
 	// For in-country addresses the bypass is attempted first (8 s timeout so a
 	// silently-dropped ISP connection doesn't stall the user indefinitely); if it
@@ -260,10 +333,11 @@ func (s *SOCKS5Server) handleConnect(c net.Conn, target string) {
 	// ShouldBypass returns false for IPs previously recorded as bypass-failures,
 	// so those go straight to the tunnel without attempting bypass at all.
 	bypassFailed := false
-	generalBypass := s.bypass != nil && s.bypass.ShouldBypass(target)
-	Log.Printf("socks5: routing decision target=%s generalBypass=%v lan=%v",
-		target, generalBypass, isLANAddress(target))
-	if s.bypass != nil && (generalBypass || isLANAddress(target)) {
+	generalBypass := !s.WildcatMode && s.bypass != nil && s.bypass.ShouldBypass(target)
+	wildcatDirect := s.WildcatMode && s.isWildcatDirectHost(target)
+	Log.Printf("socks5: routing decision target=%s wildcatMode=%v generalBypass=%v wildcatDirect=%v lan=%v dialFnSet=%v",
+		target, s.WildcatMode, generalBypass, wildcatDirect, isLANAddress(target), s.dialFn != nil)
+	if s.dialFn == nil && s.bypass != nil && (generalBypass || wildcatDirect || isLANAddress(target)) {
 		lan := isLANAddress(target)
 		Log.Printf("socks5: bypass %s", target)
 		// LAN addresses get a short timeout: silently-dropped LAN connections
@@ -303,7 +377,9 @@ func (s *SOCKS5Server) handleConnect(c net.Conn, target string) {
 
 	var tun net.Conn
 	var err error
-	{
+	if s.dialFn != nil {
+		tun, err = s.dialFn(context.Background(), target)
+	} else {
 		// s.pool can legitimately be nil -- e.g. a caller that nulls its
 		// dialerPool on disconnect without cancelling in-flight requests
 		// (see main_windows.go) can race a fresh CONNECT in against the nil
@@ -491,7 +567,7 @@ func sendSOCKS5UDPReply(c net.Conn, ip net.IP, port uint16) {
 
 func (s *SOCKS5Server) handleUDPAssoc(c net.Conn, _ string) {
 	if s.DisableUDP || s.pool == nil {
-		// No dialer pool configured; UDP ASSOCIATE is not supported.
+		// WildCat mux is TCP-only; UDP ASSOCIATE is not supported.
 		sendSOCKS5Reply(c, repCmdNotSupp)
 		return
 	}
@@ -511,7 +587,7 @@ func (s *SOCKS5Server) handleUDPAssoc(c net.Conn, _ string) {
 	// best dialer. This lets the session survive control evictions — when the
 	// original control dies, subsequent sends automatically route to the next
 	// standby rather than hanging for 30 s on a dead reference.
-	sess, err := newUDPAssocSession(c, s.bypass, s.pool.Pick, s.BlockQUIC, s.RealtimeUDPDialer)
+	sess, err := newUDPAssocSession(c, s.bypass, s.pool.Pick, s.WildcatDNS, s.BlockQUIC, s.RealtimeUDPDialer)
 	if err != nil {
 		Log.Printf("socks5: UDP ASSOCIATE setup failed: %v", err)
 		sendSOCKS5Reply(c, repGenFail)

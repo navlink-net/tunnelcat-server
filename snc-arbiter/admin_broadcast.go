@@ -75,8 +75,8 @@ func (j *broadcastJob) logf(format string, a ...interface{}) {
 // not one file shared by every broadcast forever -- that was the original
 // CLI tool's design, and it meant a second, unrelated campaign would
 // silently skip everyone who'd already received the *first* one. A letter
-// about a maintenance window and, next month, a letter about a pricing
-// change are different campaigns and must each reach every user once.
+// about Wildcat and, next month, a letter about a pricing change are
+// different campaigns and must each reach every user once.
 func slugifyCampaign(subject string) string {
 	var b strings.Builder
 	prevDash := false

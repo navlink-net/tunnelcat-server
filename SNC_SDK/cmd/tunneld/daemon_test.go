@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	core "github.com/kostiakhait/tunnelcat-core"
+	core "tunnel_cat/snc/core"
 )
 
 // newTestMockServer is a minimal inline mirror of cmd/mockserver's login
@@ -123,6 +123,6 @@ func TestUnknownMethod(t *testing.T) {
 }
 
 // ensure the core import is actually exercised (compile-time sanity check
-// that this package still depends on the real tunnelcat-core module, not a
+// that this package still depends on the real tunnelcat-server module, not a
 // stale copy).
 var _ = core.SessionKey

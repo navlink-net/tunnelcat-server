@@ -17,6 +17,12 @@
         {{end}}
       </select>
     </div>
+    <div class="form-group">
+      <label>
+        <input type="checkbox" name="full_key" value="1"{{if .Data.FullKey}} checked{{end}}>
+        Full key <span class="text-muted">(embeds every live control node, ignores region and the usual cap — for staff/monitoring accounts)</span>
+      </label>
+    </div>
     <button class="btn btn-primary" type="submit">Generate key</button>
   </form>
 </div>

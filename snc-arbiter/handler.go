@@ -990,7 +990,7 @@ func (h *handler) adminNodeAction(w http.ResponseWriter, r *http.Request) {
 // data-plane connectivity. Fetched by controls via /api/probe-sites every 2 hours
 // and cached locally; centralised here so it can be updated without redeploying controls.
 var probeSites = map[string][]string{
-	"RU": {"https://yandex.ru", "https://vk.com", "https://mail.ru"},
+	"RU": {"https://yandex.ru", "https://ok.ru", "https://mail.ru"},
 	"EU": {"https://google.com", "https://cloudflare.com", "https://microsoft.com"},
 	"US": {"https://google.com", "https://cloudflare.com", "https://amazon.com"},
 	"CN": {"https://baidu.com", "https://qq.com", "https://163.com"},

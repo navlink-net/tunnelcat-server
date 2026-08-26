@@ -30,7 +30,7 @@ data class ConnectParams(
     val username: String = "",
     val password: String = "",
     val socksAddr: String = "",
-    /** cmd/mockserver (and tunnelcat-core's own test stub) only support polling mode. */
+    /** cmd/mockserver (and tunnelcat-server's own test stub) only support polling mode. */
     val pollingOnly: Boolean = false,
 )
 

@@ -13,6 +13,9 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"tunnel_cat/binlog"
+	"tunnel_cat/logevent"
 )
 
 const (
@@ -64,6 +67,7 @@ type udpAssocSession struct {
 	bypass     *BypassManager // nil on Android; used to determine if dst should bypass tunnel
 	connID     string         // for tunnel frames
 	tunnelOnly bool           // if true, skip Variant C direct send and always use HTTP tunnel
+	wildcatDNS bool           // if true, DNS goes via the protected bypass socket (not the slow WildCat mux)
 
 	// realtimeDialer: see SOCKS5Server.RealtimeUDPDialer's doc comment. nil
 	// (the default) leaves dialerFor's existing pool-pick behavior untouched.
@@ -79,7 +83,7 @@ type udpAssocSession struct {
 	stopCh        chan struct{}
 }
 
-func newUDPAssocSession(ctrl net.Conn, bypass *BypassManager, pick func() *TunnelDialer, blockQUIC bool, realtimeDialer *TunnelDialer) (*udpAssocSession, error) {
+func newUDPAssocSession(ctrl net.Conn, bypass *BypassManager, pick func() *TunnelDialer, wildcatDNS bool, blockQUIC bool, realtimeDialer *TunnelDialer) (*udpAssocSession, error) {
 	var conn *net.UDPConn
 	var err error
 	tunnelOnly := false
@@ -107,6 +111,7 @@ func newUDPAssocSession(ctrl net.Conn, bypass *BypassManager, pick func() *Tunne
 		bypass:         bypass,
 		connID:         newConnID(),
 		tunnelOnly:     tunnelOnly,
+		wildcatDNS:     wildcatDNS,
 		blockQUIC:      blockQUIC,
 		realtimeDialer: realtimeDialer,
 		stats:          make(map[string]*dstStats),
@@ -189,11 +194,20 @@ func (s *udpAssocSession) forwardOutbound(dst *net.UDPAddr, payload []byte) {
 		return
 	}
 
-	// DNS (port 53) always goes through the tunnel to avoid leaking queries
-	// to the ISP from the client's real IP.
+	// DNS (port 53): routing depends on mode.
+	// In WildCat mode the third-party relay adds noticeable per-query latency,
+	// which causes browser timeouts.  The bypass socket is protected
+	// (bypasses TUN), so DNS goes directly to the server and back in ~50ms.
+	// In normal tunnel mode DNS still goes through the tunnel to avoid leaking
+	// queries to the ISP from the client's real IP.
 	if dst.Port == 53 {
-		Log.Printf("udp-dns: %s → tunnel (tunnelOnly=%v) q=%q", dst.IP, s.tunnelOnly, DescribeQuestion(payload))
-		s.goSendViaTunnel(dst, payload)
+		if s.wildcatDNS && !s.tunnelOnly {
+			Log.Printf("udp-dns: %s → direct (wildcatDNS=true)", dst.IP)
+			s.bypassConn.WriteTo(payload, dst) //nolint:errcheck
+		} else {
+			Log.Printf("udp-dns: %s → tunnel (wildcatDNS=%v tunnelOnly=%v) q=%q", dst.IP, s.wildcatDNS, s.tunnelOnly, DescribeQuestion(payload))
+			s.goSendViaTunnel(dst, payload)
+		}
 		return
 	}
 
@@ -226,7 +240,10 @@ func (s *udpAssocSession) forwardOutbound(dst *net.UDPAddr, payload []byte) {
 		// this UDP path had no equivalent of the TCP SOCKS5 path's "routing
 		// decision" line at all before this, a real gap when diagnosing a
 		// bypassed UDP session (DNS/QUIC) that broke with no visible reason.
-		Log.Printf("udp-assoc: routing decision dst=%s isBypassDst=%v tunnelOnly=%v", dstStr, isBypassDst, s.tunnelOnly)
+		logevent.Emit(binlog.TagTunnel, logevent.EventUdpAssocRoutingDecision,
+			logevent.Str(logevent.AttrDst, dstStr),
+			logevent.Bool(logevent.AttrIsBypassDst, isBypassDst),
+			logevent.Bool(logevent.AttrTunnelOnly, s.tunnelOnly))
 	}
 
 	if useTunnel || s.tunnelOnly || !isBypassDst {
@@ -255,7 +272,9 @@ func (s *udpAssocSession) checkFallback(key string) {
 	if st == nil || st.useTunnel || st.recvCount > 0 {
 		return
 	}
-	Log.Printf("udp-assoc: no response from %s after %d datagrams — switching to tunnel", key, st.sentCount)
+	logevent.Emit(binlog.TagTunnel, logevent.EventUdpAssocFallbackToTunnel,
+		logevent.Str(logevent.AttrKey, key),
+		logevent.Int(logevent.AttrSentCount, int64(st.sentCount)))
 	st.useTunnel = true
 }
 
@@ -373,9 +392,27 @@ func (s *udpAssocSession) dialerFor(dst *net.UDPAddr) *TunnelDialer {
 		s.stats[key] = st
 	}
 	if st.dialer != nil {
-		d := st.dialer
-		s.mu.Unlock()
-		return d
+		// A pin to the realtime dialer stops being valid the instant its
+		// udpRelay reports Failed() -- that's already a confirmed break
+		// (same bar the circuit breaker below uses), so honor it immediately
+		// here too instead of only detecting it on a fresh pick. Without
+		// this, every destination already pinned to a dead realtime dialer
+		// (e.g. every media flow of an in-progress call) had to independently
+		// burn through its own tunnelCBThreshold failures/timeouts before
+		// falling back to the pool -- one call could take minutes to recover
+		// one flow at a time instead of failing over as soon as the shared
+		// transport is known dead. Confirmed live 2026-08-19/20: a control's
+		// native UDP channel died mid-call and every already-pinned
+		// destination kept retrying it for several minutes before the whole
+		// session finally moved to the pool.
+		if st.dialer == s.realtimeDialer && s.realtimeDialer != nil &&
+			s.realtimeDialer.quicConn != nil && s.realtimeDialer.quicConn.Failed() {
+			st.dialer = nil
+		} else {
+			d := st.dialer
+			s.mu.Unlock()
+			return d
+		}
 	}
 	s.mu.Unlock()
 
@@ -386,7 +423,7 @@ func (s *udpAssocSession) dialerFor(dst *net.UDPAddr) *TunnelDialer {
 	// udpRelay's own keepalive/failure detection (udp_relay.go) is what
 	// falls this back to the normal pool automatically.
 	picked := s.realtimeDialer
-	if picked != nil && picked.udpRelay != nil && picked.udpRelay.Failed() {
+	if picked != nil && picked.quicConn != nil && picked.quicConn.Failed() {
 		picked = nil
 	}
 	if picked == nil {
@@ -400,7 +437,9 @@ func (s *udpAssocSession) dialerFor(dst *net.UDPAddr) *TunnelDialer {
 	defer s.mu.Unlock()
 	if st.dialer == nil {
 		st.dialer = picked
-		Log.Printf("udp-assoc: pinned dialer %s for %s", picked.ServerURL(), dst)
+		logevent.Emit(binlog.TagTunnel, logevent.EventUdpAssocPinnedDialer,
+			logevent.Str(logevent.AttrControl, picked.ServerURL()),
+			logevent.Str(logevent.AttrDst, dst.String()))
 	}
 	return st.dialer
 }

@@ -122,6 +122,32 @@
   </div>
 </div>
 
+{{/* ── Torrent feature toggle ─────────────────────────────────────────── */}}
+<div class="card" style="max-width:480px;margin-bottom:1.2rem;padding:.9rem 1.2rem">
+  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+    <div>
+      <strong>Torrent client (desktop)</strong>
+      {{if .Data.TorrentEnabled}}
+        <span style="margin-left:.5rem;color:#22c55e;font-weight:600">● Enabled</span>
+      {{else}}
+        <span style="margin-left:.5rem;color:#ef4444;font-weight:600">● Disabled</span>
+      {{end}}
+      <div style="font-size:.8rem;color:#6b7280;margin-top:.2rem">Fleet-wide kill switch for the embedded BitTorrent client. Default off; a client also needs its own local setting on before it will run.</div>
+    </div>
+    {{if .Data.TorrentEnabled}}
+      <form method="POST" action="/admin/torrent/toggle" style="margin:0">
+        <input type="hidden" name="enable" value="0">
+        <button class="btn btn-warning" style="padding:.3rem .8rem;font-size:.85rem">Disable</button>
+      </form>
+    {{else}}
+      <form method="POST" action="/admin/torrent/toggle" style="margin:0">
+        <input type="hidden" name="enable" value="1">
+        <button class="btn btn-success" style="padding:.3rem .8rem;font-size:.85rem">Enable</button>
+      </form>
+    {{end}}
+  </div>
+</div>
+
 {{/* ── Add node card ──────────────────────────────────────────────────── */}}
 <div id="add-node-card" class="card" style="display:none;max-width:520px;margin-bottom:1rem">
   <h2>Register &amp; approve node</h2>
@@ -134,7 +160,7 @@
   </div>
   <div class="form-group">
     <label>Server IP address</label>
-    <input type="text" id="an-host" placeholder="203.0.113.16" autocomplete="off">
+    <input type="text" id="an-host" placeholder="178.156.191.95" autocomplete="off">
     <span class="text-muted" style="font-size:12px">The arbiter will SSH in and deploy everything automatically.</span>
   </div>
   <div class="form-group">
@@ -369,6 +395,14 @@
     <div style="font-size:1.4rem;font-weight:700;margin-top:.2rem"><span id="ns-avgSessionDuration">—</span></div>
   </div>
   <div class="card" style="flex:1;min-width:180px;margin:0;padding:.9rem 1.2rem">
+    <div class="text-muted">WildCat sessions (OK / failed)</div>
+    <div style="font-size:1.4rem;font-weight:700;margin-top:.2rem"><span id="ns-wildcatSessionsOK">—</span> / <span id="ns-wildcatSessionsFailed">—</span></div>
+  </div>
+  <div class="card" style="flex:1;min-width:180px;margin:0;padding:.9rem 1.2rem">
+    <div class="text-muted">WildCat avg session duration</div>
+    <div style="font-size:1.4rem;font-weight:700;margin-top:.2rem"><span id="ns-wildcatAvgDuration">—</span></div>
+  </div>
+  <div class="card" style="flex:1;min-width:180px;margin:0;padding:.9rem 1.2rem">
     <div class="text-muted">Distinct users connected</div>
     <div style="font-size:1.4rem;font-weight:700;margin-top:.2rem"><span id="ns-distinctUsersConnected">—</span></div>
   </div>
@@ -396,6 +430,13 @@
   var rangeButtons = document.querySelectorAll('#ns-rangeToggle button');
   var curType = 'control', curRange = '24h';
   var charts = {};
+  // Line charts default to Chart.js's aspectRatio-locked sizing, which looks
+  // fine at desktop widths but squishes badly once the canvas is forced down
+  // to phone width. Bar charts (makeBarChart) are unaffected -- they already
+  // opt out of responsive sizing entirely in favor of a horizontal-scrolling
+  // fixed-px-per-bar canvas, which stays readable at any viewport width.
+  // Desktop layout/behavior is unchanged by this (matchMedia is false there).
+  var CHART_MOBILE = window.matchMedia('(max-width:700px)').matches;
   var allPeakNodes = [];       // last fetch from /admin/api/network/peaks, unfiltered
   var selectedNodeIds = null;  // Set of node_id currently checked; null = not built yet
 
@@ -438,6 +479,7 @@
       data: { labels: [], datasets: [{ data: [], borderColor: color, backgroundColor: color+'22', pointRadius: 0, tension: .2 }] },
       options: {
         animation: false,
+        maintainAspectRatio: !CHART_MOBILE,
         scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { beginAtZero: true } },
         plugins: { legend: { display: false } }
       }
@@ -495,6 +537,7 @@
       data: { labels: [], datasets: [] },
       options: {
         animation: false,
+        maintainAspectRatio: !CHART_MOBILE,
         scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { beginAtZero: true } },
         // position: 'bottom' so the per-node legend reads as a caption under
         // the graph, not as part of the card header above the canvas.
@@ -551,6 +594,7 @@
       }) },
       options: {
         animation: false,
+        maintainAspectRatio: !CHART_MOBILE,
         scales: { x: { ticks: { maxTicksLimit: 8 } }, y: { beginAtZero: true } },
         plugins: { legend: { display: true, position: 'bottom' } }
       }
@@ -601,6 +645,9 @@
       .then(function(r){ return r.json(); })
       .then(function(data){
         document.getElementById('ns-avgSessionDuration').textContent = fmtDuration(data.avg_session_seconds);
+        document.getElementById('ns-wildcatSessionsOK').textContent = (data.wildcat_sessions || {}).ok || 0;
+        document.getElementById('ns-wildcatSessionsFailed').textContent = (data.wildcat_sessions || {}).failed || 0;
+        document.getElementById('ns-wildcatAvgDuration').textContent = fmtDuration(data.wildcat_avg_seconds);
         document.getElementById('ns-distinctUsersConnected').textContent = data.distinct_users;
         var sdBuckets = data.session_duration_buckets || [];
         charts.sessionDuration.data.labels = sdBuckets.map(function(b){ return fmtTsNS(b.ts); });

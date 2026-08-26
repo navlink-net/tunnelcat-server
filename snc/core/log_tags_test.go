@@ -16,7 +16,7 @@ func TestTagForLine(t *testing.T) {
 		want binlog.Tag
 	}{
 		// Real formatted lines, as log.LstdFlags|log.Lmsgprefix actually produces them.
-		{"2026/08/15 12:00:00 [snc] socks5: routing decision target=example.com generalBypass=true\n", binlog.TagSocks5},
+		{"2026/08/15 12:00:00 [snc] socks5: routing decision target=example.com wildcatMode=true\n", binlog.TagSocks5},
 		{"2026/08/15 12:00:00 [snc] bypass: no CIDR loaded, not bypassing\n", binlog.TagBypass},
 		{"2026/08/15 12:00:00 [snc] tunnel: dial ok\n", binlog.TagTunnel},
 		{"2026/08/15 12:00:00 [snc] router: route added\n", binlog.TagTunnel},
@@ -60,7 +60,7 @@ func TestSubsystemTagsCoverKnownPrefixes(t *testing.T) {
 		"decoy", "dialer-pool", "discovery", "holepunch", "log", "log-upload",
 		"mirror", "mirror-transport", "nat", "nodeid", "procfilter", "relay",
 		"router", "socks5", "tunnel", "udp-assoc", "udp-dns", "udp-relay",
-		"updater", "watchdog",
+		"updater", "watchdog", "wildcat",
 	}
 	for _, k := range known {
 		if _, ok := subsystemTags[k]; !ok {

@@ -15,11 +15,7 @@ func encodeB64(b []byte) string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-// TestParseRejectsV1LegacyKey documents that this build has no fallback for
-// the unsigned V1 wire format: even a perfectly well-formed V1 key must be
-// rejected outright, since nothing about it is verifiable (see
-// ParseKeyString's doc comment).
-func TestParseRejectsV1LegacyKey(t *testing.T) {
+func TestEncodeParseRoundtrip(t *testing.T) {
 	kd := &KeyData{
 		Username: "alice",
 		Password: "secret",
@@ -32,8 +28,25 @@ func TestParseRejectsV1LegacyKey(t *testing.T) {
 		t.Fatalf("encode: %v", err)
 	}
 
-	if _, err := ParseKeyString(ks); err == nil {
-		t.Fatal("expected V1 key to be rejected")
+	got, err := ParseKeyString(ks)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	if got.Username != kd.Username {
+		t.Errorf("username: got %q want %q", got.Username, kd.Username)
+	}
+	if got.Password != kd.Password {
+		t.Errorf("password: got %q want %q", got.Password, kd.Password)
+	}
+	if len(got.Servers) != len(kd.Servers) {
+		t.Errorf("servers len: got %d want %d", len(got.Servers), len(kd.Servers))
+	}
+	if got.NodeID != kd.NodeID {
+		t.Errorf("node_id: got %q want %q", got.NodeID, kd.NodeID)
+	}
+	if got.APIKey != kd.APIKey {
+		t.Errorf("api_key: got %q want %q", got.APIKey, kd.APIKey)
 	}
 }
 
@@ -150,9 +163,8 @@ func TestEncodeIsDeterministicallyRandom(t *testing.T) {
 }
 
 func TestParseRejectsMissingUsername(t *testing.T) {
-	_, priv, _ := ed25519.GenerateKey(rand.Reader)
 	kd := &KeyData{Username: "", Password: "pw"}
-	ks, _ := EncodeSignedKeyString(kd, priv)
+	ks, _ := EncodeKeyString(kd)
 	_, err := ParseKeyString(ks)
 	if err == nil {
 		t.Fatal("expected error for empty username")

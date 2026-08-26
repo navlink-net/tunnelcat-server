@@ -7,8 +7,8 @@
     <RootNamespace>TunnelCat.Sdk</RootNamespace>
     <PackageId>TunnelCat.Sdk</PackageId>
     <Version>0.1.0</Version>
-    <Description>C# SDK for tunnelcat-core (spawns tunneld, drives it over its JSON-RPC socket)</Description>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Description>C# SDK for tunnelcat-server (spawns tunneld, drives it over its JSON-RPC socket)</Description>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
   </PropertyGroup>
 
 </Project>

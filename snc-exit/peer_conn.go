@@ -153,3 +153,33 @@ func (c *peerAuthCache) Validate(token string) (addr string, ok bool) {
 	return peerAddr, true
 }
 
+// ValidateNode returns the node's address if the token belongs to any live approved
+// node (exit or control). Used by the wildcat relay endpoint, which accepts requests
+// from control nodes rather than peer exits.
+func (c *peerAuthCache) ValidateNode(token string) (addr string, ok bool) {
+	now := time.Now()
+	c.mu.Lock()
+	if e, found := c.hits[token]; found && now.Sub(e.validatedAt) < localCacheTTL {
+		c.mu.Unlock()
+		return e.addr, true
+	}
+	c.mu.Unlock()
+
+	nodeAddr, _, err := c.auth.validateNodeToken(token)
+	if err != nil {
+		logWarnf("peer-auth: validate node failed token=%.8s…: %v", token, err)
+		return "", false
+	}
+
+	c.mu.Lock()
+	c.hits[token] = peerCacheEntry{addr: nodeAddr, validatedAt: now}
+	cutoff := now.Add(-localStaleTTL)
+	for k, v := range c.hits {
+		if v.validatedAt.Before(cutoff) {
+			delete(c.hits, k)
+		}
+	}
+	c.mu.Unlock()
+
+	return nodeAddr, true
+}

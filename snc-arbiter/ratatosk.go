@@ -5,10 +5,8 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -19,80 +17,11 @@ const ratatoskDownloader = "https://downloader.multi-portal.org"
 
 var ratatoskHTTPClient = &http.Client{Timeout: 5 * time.Minute}
 
-func (h *handler) ratatoskPage(w http.ResponseWriter, r *http.Request) {
-	if setLangCookie(w, r) {
-		return
-	}
-	lang := detectLang(r)
-	h.renderPageR(w, r, "ratatosk.html", pageData{User: h.currentUser(r), Lang: lang})
-}
-
-func (h *handler) ratatoskSupportPage(w http.ResponseWriter, r *http.Request) {
-	if setLangCookie(w, r) {
-		return
-	}
-	lang := detectLang(r)
-	h.renderPageR(w, r, "ratatosk_support.html", pageData{
-		Lang: lang, Path: r.URL.Path,
-		Data: supportPageData{},
-	})
-}
-
-func (h *handler) ratatoskSupportSubmit(w http.ResponseWriter, r *http.Request) {
-	lang := detectLang(r)
-	if err := r.ParseForm(); err != nil {
-		h.renderPageR(w, r, "ratatosk_support.html", pageData{
-			Lang: lang, Path: r.URL.Path,
-			Data: supportPageData{Flash: "Invalid form data"},
-		})
-		return
-	}
-	email := strings.TrimSpace(r.FormValue("email"))
-	subject := strings.TrimSpace(r.FormValue("subject"))
-	message := strings.TrimSpace(r.FormValue("message"))
-	if email == "" || subject == "" || message == "" {
-		h.renderPageR(w, r, "ratatosk_support.html", pageData{
-			Lang: lang, Path: r.URL.Path,
-			Data: supportPageData{Flash: "Email, subject, and message are required"},
-		})
-		return
-	}
-	if !h.checkSupportRateLimit(r, email) {
-		h.renderPageR(w, r, "ratatosk_support.html", pageData{
-			Lang: lang, Path: r.URL.Path,
-			Data: supportPageData{Flash: "Too many requests. Please wait before submitting again."},
-		})
-		return
-	}
-
-	fullSubject := fmt.Sprintf("[Ratatosk Support] %s", subject)
-	htmlBody := fmt.Sprintf(
-		"<p><strong>From:</strong> %s</p><p><strong>Subject:</strong> %s</p><hr><pre style=\"font-family:monospace;white-space:pre-wrap\">%s</pre>",
-		email, subject, message)
-
-	if err := h.auth.sendEmail("kk@partners.solutions", fullSubject, htmlBody); err != nil {
-		logWarnf("ratatosk-support: sendEmail from=%s: %v", email, err)
-		h.renderPageR(w, r, "ratatosk_support.html", pageData{
-			Lang: lang, Path: r.URL.Path,
-			Data: supportPageData{Flash: "Failed to send message. Please try again."},
-		})
-		return
-	}
-
-	logInfof("ratatosk-support: message sent from=%s subject=%s", email, subject)
-	h.renderPageR(w, r, "ratatosk_support.html", pageData{
-		Lang: lang, Path: r.URL.Path,
-		Data: supportPageData{OK: true},
-	})
-}
-
-func (h *handler) ratatoskPrivacyPage(w http.ResponseWriter, r *http.Request) {
-	if setLangCookie(w, r) {
-		return
-	}
-	lang := detectLang(r)
-	h.renderPageR(w, r, "ratatosk_privacy.html", pageData{User: h.currentUser(r), Lang: lang, Path: r.URL.Path})
-}
+// ratatoskPage, ratatoskSupportPage/Submit, and ratatoskPrivacyPage
+// (GET /ratatosk, GET+POST /ratatosk/support, GET /ratatosk/privacy) were
+// removed 2026-08-25 -- migrated to static pages (Web/navlink/ratatosk/)
+// + the shared POST /api/contact (see contact.go). Only the binary
+// downloads below stay on the arbiter.
 
 func (h *handler) ratatoskDownloadApk(w http.ResponseWriter, r *http.Request) {
 	ratatoskProxy(w, r, ratatoskDownloader+"/ratatosk.apk", "ratatosk.apk",

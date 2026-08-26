@@ -48,7 +48,7 @@ type KeyRow struct {
 	PreferredDurationDays int        // plan duration for auto-renewal (7 or 30); defaults to 30
 	UnlimitedDevices      bool       // true = skip device binding and multi-device checks
 	SubStatus             string     // subscription status from subscriptions table: "active"|"paused"; "" for perpetual keys
-	Source                string     // issuance channel: "get_key_page"|"my_account"|"admin_dashboard"|"admin_keygen_page"|"admin_api"|"external_register"; "" for keys issued before this was tracked
+	Source                string     // issuance channel: "get_key_page"|"my_account"|"admin_dashboard"|"admin_keygen_page"|"admin_keygen_page_full"|"admin_api"|"admin_api_full"|"external_register"; "" for keys issued before this was tracked
 }
 
 // RegisterKey inserts a new key record with defaults if no record with key_id exists.

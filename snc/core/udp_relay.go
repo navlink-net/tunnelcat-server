@@ -70,7 +70,7 @@ func (c *UDPRelayConn) Failed() bool { return c.failed.Load() }
 
 // NewUDPRelayConn wraps conn as a bidirectional relay transport.
 // controlURL is the base URL used when this node forwards requests on behalf of
-// a remote peer (e.g. "https://203.0.113.10:443").  Pass "" to disable server mode.
+// a remote peer (e.g. "https://62.238.3.12:443").  Pass "" to disable server mode.
 func NewUDPRelayConn(conn *net.UDPConn, controlURL string) *UDPRelayConn {
 	c := &UDPRelayConn{
 		conn:       conn,

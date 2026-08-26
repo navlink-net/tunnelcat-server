@@ -269,7 +269,7 @@ func (h *relayAPIHandler) logGet(w http.ResponseWriter, r *http.Request) {
 // exit -> arbiter) was removed 2026-08-11: that path was hop-by-hop TLS
 // only, so both control and whichever exit happened to relay a given
 // upload saw the full decompressed log content in plaintext -- found after
-// a raw VK OAuth token turned up in cleartext in a real user's uploaded
+// a raw third-party OAuth token turned up in cleartext in a real user's uploaded
 // logs. Clients now POST directly to https://navlink.net/api/log/client-upload
 // over their own live tunnel dialer (tunnel_cat/snc/core/log_upload.go),
 // which is genuinely end-to-end and removes this blind intermediary
@@ -351,4 +351,23 @@ func (h *relayAPIHandler) serveManifest(w http.ResponseWriter, r *http.Request) 
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(data) //nolint:errcheck
+}
+
+// WLWTPPortsForSelf returns the dynamic WLWTP ports assigned to this node
+// in the latest cached manifest. selfAddr must be in "ip:port" form
+// matching the key used by the arbiter (e.g. "89.169.155.120:443").
+func (h *relayAPIHandler) WLWTPPortsForSelf(selfAddr string) []int {
+	h.manifestMu.RLock()
+	data := h.manifestData
+	h.manifestMu.RUnlock()
+	if len(data) == 0 {
+		return nil
+	}
+	var m struct {
+		NodeWLWTPPorts map[string][]int `json:"node_wlwtp_ports"`
+	}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil
+	}
+	return m.NodeWLWTPPorts[selfAddr]
 }

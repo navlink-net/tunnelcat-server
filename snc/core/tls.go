@@ -264,6 +264,8 @@ func newUTLSTransportRaw(channelType byte, preset utls.ClientHelloID,
 		// ConnectionState().NegotiatedProtocol before writing the h2 client
 		// preface. If the peer's ALPN landed on "" or "http/1.1" (happens
 		// whenever the peer's tls.Config doesn't list "h2" in NextProtos, or
+		// -- for a WLWTP self-served connection relayed transparently by a
+		// DIFFERENT control node's session, see snc-control's serveRelayAPI --
 		// simply doesn't speak h2 for this endpoint), the peer parses our h2
 		// preface as garbage and answers with a genuine small HTTP/1.1
 		// response, which the h2 stream reader then fails to parse as a frame
