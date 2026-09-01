@@ -32,8 +32,22 @@ const (
 	persistEvery  = 5 * time.Minute
 	pingEvery     = 15 * time.Minute
 	suspectRetry  = 90 * time.Second
-	maxUDPSize    = 4096
-	pingTimeout   = 5 * time.Second
+	// maxUDPSize must cover the largest datagram this node can ever receive,
+	// not just a "reasonable" packet size -- MsgManifest sends the entire raw
+	// signed manifest as one unfragmented datagram (handleManifestWant),
+	// which has been observed around 28KB and only grows over time as more
+	// nodes/exits are added. On Windows, recvfrom() with a buffer smaller
+	// than the incoming datagram returns WSAEMSGSIZE and discards the whole
+	// packet (confirmed live 2026-08-31: continuous "dht: recv error:
+	// wsarecvfrom: message... larger than the internal message buffer"
+	// every ~25s -- exactly announceEvery's cadence -- silently dropping
+	// every manifest push to that node). Linux/macOS's MSG_TRUNC instead
+	// truncates silently with no visible error, which is why this only
+	// surfaced as an explicit, diagnosable symptom on Windows. Set to the
+	// theoretical max IPv4 UDP payload (65535 - 20B IP header - 8B UDP
+	// header) so no future payload growth can hit this again.
+	maxUDPSize  = 65507
+	pingTimeout = 5 * time.Second
 )
 
 // Node is a running Kademlia DHT node.

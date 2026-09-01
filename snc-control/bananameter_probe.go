@@ -150,7 +150,24 @@ func (p *controlBananameterProber) safeProbeViaExit(exitAddr string) {
 // using the exact same authenticated tunnel path a real client's traffic
 // takes through that exit -- not a bypass.
 func (p *controlBananameterProber) probeViaExit(exitAddr string) {
-	auth := core.NewAuthenticatorWithToken("https://"+exitAddr, bananameterAPIKey, p.token)
+	// NewAuthenticator (not NewAuthenticatorWithToken) so the prober account's
+	// real credentials are present, then AdoptToken to skip an extra Login()
+	// call on the happy path. NewAuthenticatorWithToken leaves password/
+	// keyAuth unset by design ("token was obtained externally, no Login()
+	// required") -- fine as long as the cached token stays valid, but the
+	// moment it doesn't, TunnelDialer's own automatic re-auth (tunnel.go)
+	// calls Login() on this credential-less Authenticator, which fails
+	// instantly and locally ("no valid auth method available") without ever
+	// reaching the network. That's not treated as a server rejection, so the
+	// retry loop never gives up -- it just hammers Login() with a growing
+	// backoff (capped at 30s) for as long as this one HTTP call's context
+	// stays open. Run sequentially across every live exit inside a single
+	// probe cycle, that turns "probe every 10 minutes" into several minutes
+	// of continuous re-auth spam per cycle. Giving this Authenticator real
+	// credentials means a stale token now triggers a real re-login instead
+	// of a hopeless local no-op retried forever.
+	auth := core.NewAuthenticator("https://"+exitAddr, bananameterAPIKey, p.proberUsername, p.proberPassword)
+	auth.AdoptToken(p.token)
 	dialer := core.NewTunnelDialer(auth)
 
 	client := &http.Client{

@@ -105,6 +105,54 @@ func dialPeer(peer *PeerEntry, target, nodeToken string, deadline time.Time) (ne
 	return &peerConn{conn: rawConn, r: br}, nil
 }
 
+// dialBestPeer races dialPeer against every candidate in parallel and
+// returns the connection that completes first. dialPeer only succeeds once
+// the peer itself has dialed target (see servePeerConnect's targetConn dial
+// before it writes "200 OK"), so the winner of the race is the candidate
+// with the lowest real end-to-end time to THIS target -- not a guess based
+// on the peer's region or general health. Racing instead of a separate
+// cheap probe-then-dial step also means session setup is bounded by the
+// fastest candidate, never by trying candidates one at a time. Connections
+// from slower or failed candidates are drained and closed in the
+// background so the caller never blocks on stragglers.
+func dialBestPeer(candidates []PeerEntry, target, nodeToken string, deadline time.Time) (net.Conn, PeerEntry, error) {
+	if len(candidates) == 0 {
+		return nil, PeerEntry{}, fmt.Errorf("no candidate peers")
+	}
+	type result struct {
+		conn net.Conn
+		peer PeerEntry
+		err  error
+	}
+	ch := make(chan result, len(candidates))
+	for _, p := range candidates {
+		go func(p PeerEntry) {
+			conn, err := dialPeer(&p, target, nodeToken, deadline)
+			ch <- result{conn, p, err}
+		}(p)
+	}
+
+	var errs []string
+	for i := 0; i < len(candidates); i++ {
+		r := <-ch
+		if r.err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", r.peer.Addr, r.err))
+			continue
+		}
+		if remaining := len(candidates) - i - 1; remaining > 0 {
+			go func(n int) {
+				for j := 0; j < n; j++ {
+					if lr := <-ch; lr.err == nil {
+						lr.conn.Close()
+					}
+				}
+			}(remaining)
+		}
+		return r.conn, r.peer, nil
+	}
+	return nil, PeerEntry{}, fmt.Errorf("all %d peer(s) failed: %s", len(candidates), strings.Join(errs, "; "))
+}
+
 // ── Peer auth cache ───────────────────────────────────────────────────────────
 
 // peerAuthCache caches validated peer node tokens to avoid per-request arbiter

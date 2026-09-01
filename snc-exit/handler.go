@@ -534,24 +534,24 @@ func (h *handler) handleTunnel(w http.ResponseWriter, r *http.Request) {
 			if sock == nil && (h.torrentAllowed == nil || !h.torrentAllowed.SelfAllowed()) && isBitTorrentHandshake(payload) {
 				redirected := false
 				if !noForward && h.peers != nil && h.torrentAllowed != nil {
+					var candidates []PeerEntry
 					for _, peer := range h.peers.ShufflePeers() {
-						if time.Now().After(dialDeadline) {
-							logWarnf("tunnel: torrent redirect user=%s target=%s — dial budget exhausted, giving up", username, target)
-							break
-						}
 						if h.selfIPs[peer.Addr] || peer.Region == clientCC || !h.torrentAllowed.IsAllowed(peer.Addr) {
 							continue
 						}
-						conn, err := dialPeer(&peer, target, h.nodeToken, dialDeadline)
-						if err != nil {
-							logWarnf("tunnel: torrent redirect failed user=%s target=%s peer=%s: %v — trying next peer", username, target, peer.Addr, err)
-							continue
-						}
+						candidates = append(candidates, peer)
+					}
+					if len(candidates) == 0 {
+						// no-op, falls through to rejection below
+					} else if time.Now().After(dialDeadline) {
+						logWarnf("tunnel: torrent redirect user=%s target=%s — dial budget exhausted, giving up", username, target)
+					} else if conn, peer, err := dialBestPeer(candidates, target, h.nodeToken, dialDeadline); err != nil {
+						logWarnf("tunnel: torrent redirect failed user=%s target=%s: %v", username, target, err)
+					} else {
 						logInfof("tunnel: torrent redirect user=%s conn=%.8s target=%s peer=%s (this exit does not allow torrent egress)", username, connID, target, peer.Addr)
 						h.pool.store(connID, conn, username)
 						sock = conn
 						redirected = true
-						break
 					}
 				}
 				if !redirected {
@@ -609,23 +609,23 @@ func (h *handler) handleTunnel(w http.ResponseWriter, r *http.Request) {
 				blockedHere := h.svcBlocks.IsBlockedForRegion(targetHost, targetIP, myRegion) ||
 					(h.providerTag != "" && h.svcBlocks.IsBlockedForRegion(targetHost, targetIP, h.providerTag))
 				if blockedHere {
+					var candidates []PeerEntry
 					for _, peer := range h.peers.ShufflePeers() {
-						if time.Now().After(dialDeadline) {
-							logWarnf("tunnel: region-block redirect user=%s target=%s — dial budget exhausted, giving up", username, target)
-							break
-						}
 						if h.selfIPs[peer.Addr] || peer.Region == clientCC || h.svcBlocks.IsBlockedForRegion(targetHost, targetIP, peer.Region) {
 							continue
 						}
-						conn, err := dialPeer(&peer, target, h.nodeToken, dialDeadline)
-						if err != nil {
-							logWarnf("tunnel: region-block redirect failed user=%s target=%s peer=%s: %v — trying next peer", username, target, peer.Addr, err)
-							continue
+						candidates = append(candidates, peer)
+					}
+					if len(candidates) > 0 && time.Now().After(dialDeadline) {
+						logWarnf("tunnel: region-block redirect user=%s target=%s — dial budget exhausted, giving up", username, target)
+					} else if len(candidates) > 0 {
+						if conn, peer, err := dialBestPeer(candidates, target, h.nodeToken, dialDeadline); err != nil {
+							logWarnf("tunnel: region-block redirect failed user=%s target=%s: %v", username, target, err)
+						} else {
+							logInfof("tunnel: region-block redirect user=%s conn=%.8s target=%s peer=%s (exit region %s is blocked for this destination)", username, connID, target, peer.Addr, myRegion)
+							h.pool.store(connID, conn, username)
+							sock = conn
 						}
-						logInfof("tunnel: region-block redirect user=%s conn=%.8s target=%s peer=%s (exit region %s is blocked for this destination)", username, connID, target, peer.Addr, myRegion)
-						h.pool.store(connID, conn, username)
-						sock = conn
-						break
 					}
 					if sock == nil {
 						logWarnf("tunnel: region-block exit=%s target=%s — no unblocked peer available, falling back to direct (will likely fail) user=%s", myRegion, target, username)
@@ -639,23 +639,23 @@ func (h *handler) handleTunnel(w http.ResponseWriter, r *http.Request) {
 			// Skips peers in the client's own country so traffic never egresses there.
 			if sock == nil && !noForward && h.peers != nil && myRegion != "" && h.cidrCache != nil {
 				if targetCC := h.cidrCache.lookupCountry(targetHost); targetCC != "" && targetCC != myRegion {
+					var candidates []PeerEntry
 					for _, peer := range h.peers.ShufflePeers() {
-						if time.Now().After(dialDeadline) {
-							logWarnf("tunnel: geo-peer user=%s target=%s — dial budget exhausted, giving up", username, target)
-							break
-						}
 						if peer.Region != targetCC || h.selfIPs[peer.Addr] || peer.Region == clientCC {
 							continue
 						}
-						conn, err := dialPeer(&peer, target, h.nodeToken, dialDeadline)
-						if err != nil {
-							logWarnf("tunnel: geo-peer dial failed user=%s target=%s peer=%s: %v — trying next", username, target, peer.Addr, err)
-							continue
+						candidates = append(candidates, peer)
+					}
+					if len(candidates) > 0 && time.Now().After(dialDeadline) {
+						logWarnf("tunnel: geo-peer user=%s target=%s — dial budget exhausted, giving up", username, target)
+					} else if len(candidates) > 0 {
+						if conn, peer, err := dialBestPeer(candidates, target, h.nodeToken, dialDeadline); err != nil {
+							logWarnf("tunnel: geo-peer dial failed user=%s target=%s: %v", username, target, err)
+						} else {
+							logInfof("tunnel: geo-peer user=%s conn=%.8s target=%s peer=%s region=%s", username, connID, target, peer.Addr, targetCC)
+							h.pool.store(connID, conn, username)
+							sock = conn
 						}
-						logInfof("tunnel: geo-peer user=%s conn=%.8s target=%s peer=%s region=%s", username, connID, target, peer.Addr, targetCC)
-						h.pool.store(connID, conn, username)
-						sock = conn
-						break
 					}
 				}
 			}
@@ -665,23 +665,23 @@ func (h *handler) handleTunnel(w http.ResponseWriter, r *http.Request) {
 			// peer exit that can.
 			if sock == nil && !noForward && h.wl != nil && h.probeDB != nil && h.peers != nil {
 				if h.wl.IsWhitelisted(targetHost, "") && !h.probeDB.CanReach(targetHost) {
+					var candidates []PeerEntry
 					for _, peer := range h.peers.PeersCapableOf(targetHost) {
-						if time.Now().After(dialDeadline) {
-							logWarnf("tunnel: whitelist-peer user=%s target=%s — dial budget exhausted, giving up", username, target)
-							break
-						}
 						if h.selfIPs[peer.Addr] || peer.Region == clientCC {
 							continue
 						}
-						conn, err := dialPeer(&peer, target, h.nodeToken, dialDeadline)
-						if err != nil {
-							logWarnf("tunnel: whitelist-peer dial failed user=%s target=%s peer=%s: %v — trying next", username, target, peer.Addr, err)
-							continue
+						candidates = append(candidates, peer)
+					}
+					if len(candidates) > 0 && time.Now().After(dialDeadline) {
+						logWarnf("tunnel: whitelist-peer user=%s target=%s — dial budget exhausted, giving up", username, target)
+					} else if len(candidates) > 0 {
+						if conn, peer, err := dialBestPeer(candidates, target, h.nodeToken, dialDeadline); err != nil {
+							logWarnf("tunnel: whitelist-peer dial failed user=%s target=%s: %v", username, target, err)
+						} else {
+							logInfof("tunnel: whitelist-peer user=%s conn=%.8s target=%s peer=%s", username, connID, target, peer.Addr)
+							h.pool.store(connID, conn, username)
+							sock = conn
 						}
-						logInfof("tunnel: whitelist-peer user=%s conn=%.8s target=%s peer=%s", username, connID, target, peer.Addr)
-						h.pool.store(connID, conn, username)
-						sock = conn
-						break
 					}
 					if sock == nil {
 						logWarnf("tunnel: whitelist-peer user=%s target=%s — no capable peer, falling through", username, target)
@@ -702,22 +702,23 @@ func (h *handler) handleTunnel(w http.ResponseWriter, r *http.Request) {
 					// in random order, skipping self and any exit in the client's own
 					// country (traffic must never egress through the client's country).
 					if !noForward && h.peers != nil {
+						var candidates []PeerEntry
 						for _, peer := range h.peers.ShufflePeers() {
-							if time.Now().After(dialDeadline) {
-								logWarnf("tunnel: fallback-peer user=%s target=%s — dial budget exhausted, giving up", username, target)
-								break
-							}
 							if h.selfIPs[peer.Addr] || peer.Region == clientCC {
 								continue
 							}
-							pconn, perr := dialPeer(&peer, target, h.nodeToken, dialDeadline)
-							if perr == nil {
+							candidates = append(candidates, peer)
+						}
+						if len(candidates) > 0 && time.Now().After(dialDeadline) {
+							logWarnf("tunnel: fallback-peer user=%s target=%s — dial budget exhausted, giving up", username, target)
+						} else if len(candidates) > 0 {
+							if pconn, peer, perr := dialBestPeer(candidates, target, h.nodeToken, dialDeadline); perr == nil {
 								logInfof("tunnel: fallback-peer user=%s conn=%.8s target=%s peer=%s", username, connID, target, peer.Addr)
 								h.pool.store(connID, pconn, username)
 								sock = pconn
-								break
+							} else {
+								logWarnf("tunnel: fallback-peer dial failed user=%s target=%s: %v", username, target, perr)
 							}
-							logWarnf("tunnel: fallback-peer dial failed user=%s target=%s peer=%s: %v — trying next peer", username, target, peer.Addr, perr)
 						}
 					}
 					if sock == nil {

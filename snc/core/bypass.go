@@ -65,6 +65,32 @@ type BypassManager struct {
 
 	stop   chan struct{}
 	client *http.Client
+
+	// routeHook, when set, is called with the destination IP every time
+	// ShouldBypass approves a *new* general (non-control-node) destination
+	// for bypass. nil (the default, every platform except mac) means "no
+	// hook, no-op" -- this exists purely as an mac-specific extension point,
+	// see its SetRouteHook doc comment for why only mac needs it.
+	routeHook atomic.Pointer[func(ip string)]
+}
+
+// SetRouteHook installs a callback invoked with each new bypass-approved
+// destination IP. Necessary on macOS only: macOS's BSD routing table picks
+// routes purely by destination+metric, ignoring which local address a
+// socket is bound to -- so a bypass dial explicitly bound to the physical
+// NIC still has no route once the TUN split-default routes (0/1, 128/1) are
+// installed, unless a host route for that specific destination was added
+// ahead of time. Windows does not have this problem (its split-default
+// routes are interface-scoped via "if <tun-index>") -- do not wire this
+// unconditionally on every platform on the assumption the bug is universal;
+// it isn't. Callers pass their platform's RouteManager.AddBypass (or
+// equivalent) directly; it's already idempotent.
+func (m *BypassManager) SetRouteHook(hook func(ip string)) {
+	if hook == nil {
+		m.routeHook.Store(nil)
+		return
+	}
+	m.routeHook.Store(&hook)
 }
 
 // NewBypassManager creates a BypassManager that will fetch CIDR data from the
@@ -313,6 +339,9 @@ func (m *BypassManager) ShouldBypass(addr string) bool {
 					logevent.Str(logevent.AttrReason, logevent.BypassDecisionReasonTldOverride),
 					logevent.Str("domain_country", dc),
 					logevent.Str("my_country", country))
+				if result {
+					m.fireRouteHook(ipStr)
+				}
 				return result
 			}
 		}
@@ -335,7 +364,18 @@ func (m *BypassManager) ShouldBypass(addr string) bool {
 		logevent.Bool(logevent.AttrResult, result),
 		logevent.Str(logevent.AttrReason, logevent.BypassDecisionReasonCidrMembership),
 		logevent.Str("my_country", country))
+	if result {
+		m.fireRouteHook(ipStr)
+	}
 	return result
+}
+
+// fireRouteHook calls the platform route hook (see SetRouteHook) if one is
+// set. No-op on every platform that never calls SetRouteHook.
+func (m *BypassManager) fireRouteHook(ip string) {
+	if hook := m.routeHook.Load(); hook != nil {
+		(*hook)(ip)
+	}
 }
 
 // tldCountry returns the ISO country code implied by a domain's TLD, or "".
