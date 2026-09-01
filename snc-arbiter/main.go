@@ -155,7 +155,6 @@ func main() {
 	h.clientTelemetryKey = *clientTelemetryKey
 	h.notifier = newNotifier(db, signer)
 	h.loadNotificationsFromDB()
-	h.startWLWTPPortRotator()
 	h.StartLoadFactorTicker(5 * time.Minute)
 
 	// ── Node provisioner (SSH deploy) ─────────────────────────────────────────

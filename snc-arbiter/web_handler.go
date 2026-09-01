@@ -149,20 +149,6 @@ func (p *webPlane) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "/api/downloads/info" && r.Method == http.MethodGet:
 		h.apiDownloadsInfo(w, r)
 
-	// ── Account profile (name/country/phone -- gates Dev Program access) ──
-	case path == "/api/profile" && r.Method == http.MethodGet:
-		h.apiProfileGet(w, r)
-	case path == "/api/profile" && r.Method == http.MethodPost:
-		h.apiProfileSave(w, r)
-
-	// ── Tunnel Cat Developers Program (SDK key applications) ──────────────
-	case path == "/api/dev/apply" && r.Method == http.MethodPost:
-		h.apiDevApply(w, r)
-
-	// ── Shared contact/support form endpoint (see contact.go) ──────────────
-	case path == "/api/contact" && r.Method == http.MethodPost:
-		h.apiContact(w, r)
-
 	// ── Apps showcase (apps.navlink.net storefront, public read-only) ──────
 	case path == "/api/apps/meta" && r.Method == http.MethodGet:
 		h.apiAppsMeta(w, r)
@@ -325,17 +311,6 @@ func (p *webPlane) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	case path == "/admin/api/users/never-connected" && r.Method == http.MethodGet:
 		h.requireAdmin(h.apiAdminNeverConnected)(w, r)
 
-	// ── Tunnel Cat Developers Program admin review ─────────────────────────
-	case path == "/admin/api/dev-apps" && r.Method == http.MethodGet:
-		h.requireAdmin(h.apiAdminDevAppsList)(w, r)
-	case strings.HasPrefix(path, "/admin/api/dev-apps/") && strings.HasSuffix(path, "/approve") && r.Method == http.MethodPost:
-		h.requireAdmin(h.apiAdminDevAppApprove)(w, r)
-	case strings.HasPrefix(path, "/admin/api/dev-apps/") && strings.HasSuffix(path, "/reject") && r.Method == http.MethodPost:
-		h.requireAdmin(h.apiAdminDevAppReject)(w, r)
-	case strings.HasPrefix(path, "/admin/api/dev-apps/") && strings.HasSuffix(path, "/revoke") && r.Method == http.MethodPost:
-		h.requireAdmin(h.apiAdminDevAppRevoke)(w, r)
-	case path == "/admin/dev-apps" && r.Method == http.MethodGet:
-		h.requireAdmin(h.adminDevAppsPage)(w, r)
 	case strings.HasPrefix(path, "/admin/api/users/") && strings.HasSuffix(path, "/confirm-email") && r.Method == http.MethodPost:
 		h.requireAdmin(h.apiAdminConfirmEmail)(w, r)
 	case strings.HasPrefix(path, "/admin/api/users/") && strings.HasSuffix(path, "/conn-stats") && r.Method == http.MethodGet:

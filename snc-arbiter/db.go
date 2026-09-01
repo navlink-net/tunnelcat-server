@@ -352,9 +352,6 @@ func openDB(path string) (*DB, error) {
 	if err := d.initKeysSchema(); err != nil {
 		return nil, fmt.Errorf("keys schema: %w", err)
 	}
-	if err := d.initDevAppsSchema(); err != nil {
-		return nil, fmt.Errorf("dev_applications schema: %w", err)
-	}
 	// Run column-addition migrations; each ALTER TABLE may fail if the column
 	// already exists (from the schema or a prior run) — that is expected and safe.
 	for _, stmt := range []string{

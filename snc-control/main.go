@@ -200,16 +200,29 @@ func main() {
 		logErrorf("udp listen %s: %v", *listen, err)
 		os.Exit(1)
 	}
-	logInfof("UDP reflector+tunnel+DHT listening on %s", *listen)
-	tunnelH := newUDPTunnelHandler(udpLn, exits, relayAPIH)
-	go tunnelH.gc()
+	logInfof("UDP reflector+QUIC+DHT listening on %s", *listen)
 	dhtSrv := newDHTServer(udpLn, *nodeIP)
 	relayAPIH.onNewManifest = dhtSrv.SetManifest
 	contentReg.OnNew = dhtSrv.SetContent
-	go newUDPReflector(udpLn, tunnelH, dhtSrv).Serve()
 
 	proxy := newTCPProxy(exits, relayAPIH, tlsCfg, cidrC, *token)
 	exits.onDead = proxy.closeExitConns
+
+	// QUIC tunnel: replaces the old UDP fallback for client<->control.
+	// Shares the same UDP:443 socket via the demux below; requires a real
+	// TLS cert (QUIC needs ALPN + a working handshake, unlike the reflector's
+	// pre-shared-key scheme), so it's only started when one is available.
+	quicCIDs := newQUICCIDTracker()
+	quicConn := newQUICPacketConn(udpLn)
+	if tlsCfg != nil {
+		go startQUICTunnel(quicConn, quicCIDs, tlsCfg, proxy)
+	} else {
+		logWarnf("quic: no TLS certificate available, QUIC tunnel disabled")
+		quicConn = nil
+	}
+
+	go newUDPReflector(udpLn, quicConn, quicCIDs, dhtSrv).Serve()
+	startUDPMTUEcho()
 
 	for {
 		conn, err := ln.Accept()

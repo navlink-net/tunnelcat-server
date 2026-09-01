@@ -531,7 +531,7 @@ func (h *handler) handleTunnel(w http.ResponseWriter, r *http.Request) {
 			// and this exit doesn't allow torrent egress, forward through a
 			// peer that does; if none is available, reject outright rather
 			// than silently letting it through on a non-allowing exit.
-			if sock == nil && (h.torrentAllowed == nil || !h.torrentAllowed.SelfAllowed()) && isBitTorrentHandshake(payload) {
+			if sock == nil && (h.torrentAllowed == nil || !h.torrentAllowed.SelfAllowed()) && (isBitTorrentHandshake(payload) || isLikelyBitTorrentPort(port)) {
 				redirected := false
 				if !noForward && h.peers != nil && h.torrentAllowed != nil {
 					var candidates []PeerEntry

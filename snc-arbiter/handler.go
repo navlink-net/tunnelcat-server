@@ -40,6 +40,19 @@ type handler struct {
 	contentDir    string // directory mirrored to clients via the content-manifest (torrent-like); empty = disabled
 	contentCache  contentManifestCache
 	uploadKey     string // bearer key for /admin/downloads/upload; empty = admin session only
+
+	// torrentSeedManifestURL/torrentSeedDataDir/torrentTrackersFile/
+	// torrentMagnetsState -- see torrent_magnets.go. Distinct from
+	// torrentFeature (torrent_enabled toggle, admin_torrent_enabled.go) and
+	// from contentDir (unrelated content-manifest mirroring feature) --
+	// this is specifically about surfacing the torrent-seed fleet's
+	// client-software magnets and this arbiter's own signed-manifest magnet
+	// in SignedList.
+	torrentSeedManifestURL string
+	torrentSeedDataDir     string
+	torrentTrackersFile    string
+	torrentMagnetsState    torrentMagnetsState
+
 	// peerArbiters lists this node's fellow arbiter cluster members (base
 	// URLs, e.g. "https://203.0.113.12") that a successful client-binary
 	// upload should be replicated to. The two-node cluster (see
@@ -71,6 +84,7 @@ type handler struct {
 	notifier             *Notifier           // may be nil
 	relay                relayState
 	ipv6                 ipv6State
+	torrentFeature       torrentState
 	loadFactor           loadFactorConfig   // see load_factor.go
 	logs                 *nodeLogStore      // device log storage; always set
 	provisioner          *provisioner       // may be nil if setup-dir/node-bin-dir not configured
@@ -86,6 +100,7 @@ type handler struct {
 	loginGlobal    *tokenBucket         // sitewide cap across all logins, with burst
 
 	manifestClientLimiter *tieredWindowLimiter // per-IP tiers for /api/manifest/client
+	manifestTopupLimiter  *tieredWindowLimiter // per-IP tiers for /api/manifest/topup
 }
 
 // loadNotificationsFromDB refreshes the in-memory notification cache from the DB.
@@ -139,6 +154,7 @@ func newHandler(db *DB, auth *authClient, signer *signingKey, sessions *SessionM
 		loginIPLimiter:        newTieredWindowLimiter(),
 		loginGlobal:           newTokenBucket(20, 1),
 		manifestClientLimiter: newTieredWindowLimiter(),
+		manifestTopupLimiter:  newTieredWindowLimiter(),
 	}
 
 	funcs := template.FuncMap{
@@ -1648,4 +1664,3 @@ func (h *handler) handleKeyAuth(w http.ResponseWriter, body []byte) {
 	}
 	json.NewEncoder(w).Encode(resp) //nolint:errcheck
 }
-
