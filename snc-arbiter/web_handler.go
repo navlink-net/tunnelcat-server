@@ -243,6 +243,12 @@ func (p *webPlane) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		h.requireAdmin(h.adminKeygenPageSubmit)(w, r)
 	case path == "/admin/key/generate" && r.Method == http.MethodPost:
 		h.adminGenerateKey(w, r) // auth handled inside: admin session OR X-Admin-Token
+	case path == "/admin/api/log-upload/global" && r.Method == http.MethodPost:
+		h.adminLogUploadGlobalSet(w, r) // auth handled inside: admin session OR X-Admin-Token
+	case path == "/admin/api/log-upload/user-override" && r.Method == http.MethodPost:
+		h.adminLogUploadUserOverride(w, r) // auth handled inside: admin session OR X-Admin-Token
+	case path == "/admin/api/log-upload/status" && r.Method == http.MethodGet:
+		h.adminLogUploadStatus(w, r) // auth handled inside: admin session OR X-Admin-Token
 	case path == "/admin/whitelist" && r.Method == http.MethodGet:
 		h.requireAdmin(h.adminWhitelistPage)(w, r)
 	case path == "/admin/whitelist/add" && r.Method == http.MethodPost:
@@ -502,6 +508,16 @@ func (p *webPlane) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	// plane. See log_upload_client_api.go and tunnel_cat/snc/core/log_upload.go.
 	case path == "/api/log/client-upload" && r.Method == http.MethodPost:
 		h.apiLogClientUpload(w, r)
+
+	// ── Log-upload privacy preference (client, shared Bearer key) ──────────
+	// Same dual-listener trap and same auth model as the upload case just
+	// above -- lets the app's own settings UI read/flip the user's own
+	// self-service preference without needing a separate web session. See
+	// docs/LOG_UPLOAD_PRIVACY.md.
+	case path == "/api/log/client-upload/pref" && r.Method == http.MethodGet:
+		h.apiLogClientUploadPrefGet(w, r)
+	case path == "/api/log/client-upload/pref" && r.Method == http.MethodPost:
+		h.apiLogClientUploadPrefSet(w, r)
 
 	// ── Connection-stats upload (client, shared Bearer key) ────────────────
 	// Same dual-listener trap as the two cases above -- clients only ever

@@ -380,6 +380,14 @@ func openDB(path string) (*DB, error) {
 		`ALTER TABLE notifications ADD COLUMN username TEXT`,
 		// Registration source: 'navlink' for navlink.net signups; other values reserved.
 		`ALTER TABLE user_confirmations ADD COLUMN source TEXT NOT NULL DEFAULT ''`,
+		// Log-upload privacy toggles, 2026-09-18: log_upload_enabled is the
+		// user's own self-service preference (default on, matching prior
+		// always-on behavior); log_upload_admin_disabled is a staff override
+		// that forces uploads off regardless of the user's own setting --
+		// see logUploadAllowed. Neither affects local on-device logging or a
+		// manual Share-Logs export, only the automatic background upload.
+		`ALTER TABLE users ADD COLUMN log_upload_enabled INTEGER NOT NULL DEFAULT 1`,
+		`ALTER TABLE users ADD COLUMN log_upload_admin_disabled INTEGER NOT NULL DEFAULT 0`,
 	} {
 		db.Exec(stmt) //nolint:errcheck // fails on duplicate column, which is fine
 	}
@@ -657,6 +665,99 @@ func genClientID() (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("clt_%x", b), nil
+}
+
+// ── log-upload privacy toggles ──────────────────────────────────────────────
+//
+// Three independent switches, all defaulting to "uploads happen" (matching
+// behavior before this feature existed), gate the automatic background
+// upload of a client's device-log ring buffer (apiLogClientUpload) -- never
+// local on-device logging, and never a manual Share-Logs export:
+//   - a global kill switch (system_settings key logUploadGlobalSetting),
+//     runtime-toggleable with no rebuild/redeploy, same mechanism
+//     load_factor.go's admin-tunable knobs already use;
+//   - each user's own self-service preference (users.log_upload_enabled);
+//   - a staff override (users.log_upload_admin_disabled) that forces
+//     uploads off regardless of what the user set, for e.g. a compliance
+//     request or an abuse investigation.
+//
+// See docs/LOG_UPLOAD_PRIVACY.md for why this data is collected at all and
+// the tradeoff it represents.
+
+const logUploadGlobalSetting = "log_upload_global_enabled"
+
+// globalLogUploadEnabled reports the kill switch's current state. Missing
+// setting = enabled (pre-existing behavior, nothing configured yet).
+func (d *DB) globalLogUploadEnabled() bool {
+	val, ok, err := d.getSetting(logUploadGlobalSetting)
+	if !ok || err != nil {
+		return true
+	}
+	return val != "0"
+}
+
+// setGlobalLogUploadEnabled flips the system-wide kill switch. who is the
+// admin username, recorded in system_settings.updated_by for audit.
+func (d *DB) setGlobalLogUploadEnabled(enabled bool, who string) error {
+	val := "1"
+	if !enabled {
+		val = "0"
+	}
+	return d.setSetting(logUploadGlobalSetting, val, who)
+}
+
+// userLogUploadPrefs reads one user's own preference and any admin override.
+// Both default true/false (i.e. "uploads allowed") for a username with no
+// row yet, or on any lookup error -- a lookup failure must never silently
+// grant an override it can't actually verify, but it also must never be the
+// reason uploads across the whole fleet suddenly stop; logUploadAllowed
+// below is what actually decides.
+func (d *DB) userLogUploadPrefs(username string) (userEnabled, adminDisabled bool) {
+	if username == "" {
+		return true, false
+	}
+	userEnabled, adminDisabled = true, false
+	d.db.QueryRow( //nolint:errcheck
+		`SELECT log_upload_enabled, log_upload_admin_disabled FROM users WHERE username=?`, username,
+	).Scan(&userEnabled, &adminDisabled)
+	return userEnabled, adminDisabled
+}
+
+// setUserLogUploadEnabled sets username's own self-service preference.
+func (d *DB) setUserLogUploadEnabled(username string, enabled bool) error {
+	_, err := d.db.Exec(`UPDATE users SET log_upload_enabled=? WHERE username=?`, boolToInt(enabled), username)
+	return err
+}
+
+// setUserLogUploadAdminDisabled sets or clears the staff override for
+// username. adminUser is logged for audit but not stored (system_settings
+// has an updated_by column for exactly this; the users table doesn't --
+// callers should log this themselves, see adminLogUploadOverride).
+func (d *DB) setUserLogUploadAdminDisabled(username string, disabled bool) error {
+	_, err := d.db.Exec(`UPDATE users SET log_upload_admin_disabled=? WHERE username=?`, boolToInt(disabled), username)
+	return err
+}
+
+// logUploadAllowed combines all three switches: the global kill switch, the
+// user's own preference, and any staff override. username == "" (identity
+// couldn't be resolved for this upload) is treated as "no per-user
+// information available" -- only the global switch applies.
+func (d *DB) logUploadAllowed(username string) bool {
+	if !d.globalLogUploadEnabled() {
+		return false
+	}
+	if username == "" {
+		return true
+	}
+	userEnabled, adminDisabled := d.userLogUploadPrefs(username)
+	return userEnabled && !adminDisabled
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // ── nodes ─────────────────────────────────────────────────────────────────────

@@ -204,6 +204,10 @@ func (lu *LogUploader) Start(pickDialer func() *TunnelDialer, wildcatActive func
 					Log.Printf("log-upload: skipping tick, not connected")
 					continue
 				}
+				if !checkLogUploadAllowed(dialer, lu.nodeID, lu.nodeType) {
+					Log.Printf("log-upload: skipping tick, upload disabled (global switch, account preference, or admin override)")
+					continue
+				}
 				lu.upload(dialer)
 			}
 		}

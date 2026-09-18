@@ -17,11 +17,10 @@ import (
 // colon-hex, uppercase format), duplicated here on purpose rather than
 // importing tunnel_cat/snc/core: that package's log.go init() hard-exits any
 // binary that imports it unless built with -ldflags -X
-// tunnel_cat/snc/core.Version=<real timestamp> (see the
-// shortnerdcat-client-versioning skill) -- snc-arbiter has never needed that
-// build step and pulling in this one small primitive isn't worth taking it
-// on. If a second real need for snc/core shows up in snc-arbiter, revisit
-// this duplication then.
+// tunnel_cat/snc/core.Version=<real timestamp> -- snc-arbiter has never
+// needed that build step and pulling in this one small primitive isn't
+// worth taking it on. If a second real need for snc/core shows up in
+// snc-arbiter, revisit this duplication then.
 func certFingerprint(der []byte) string {
 	sum := sha256.Sum256(der)
 	parts := make([]string, len(sum))

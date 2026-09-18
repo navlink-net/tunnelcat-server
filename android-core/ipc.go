@@ -59,6 +59,31 @@ type ClubRecommendArgs struct {
 	Username string `json:"username"`
 }
 
+// LogUploadPrefResponse mirrors tunnel_cat/snc/core.LogUploadPrefResponse --
+// same field names, same meaning. See docs/LOG_UPLOAD_PRIVACY.md. Returned
+// by the "log-upload-pref-get" and "log-upload-pref-set" IPC commands; a
+// zero value (all false) is returned when there's no live tunnel to ask the
+// arbiter over, same "empty on failure" convention as ClubStatusResponse.
+type LogUploadPrefResponse struct {
+	// OK is true only when the arbiter actually answered. An all-false reply
+	// with OK=false means "couldn't reach the arbiter" (no live tunnel dialer
+	// yet, or the request failed) -- deliberately explicit rather than
+	// inferred from the other fields, because an all-false reply with
+	// OK=true is also a real, legitimate state (global kill switch off AND
+	// this user opted out), and the two must not be confused.
+	OK            bool `json:"ok"`
+	Enabled       bool `json:"enabled"`
+	AdminDisabled bool `json:"admin_disabled"`
+	GlobalEnabled bool `json:"global_enabled"`
+	Effective     bool `json:"effective"`
+}
+
+// LogUploadPrefArgs carries the user's requested preference for the
+// "log-upload-pref-set" IPC command.
+type LogUploadPrefArgs struct {
+	Enabled bool `json:"enabled"`
+}
+
 func WriteJSON(conn net.Conn, v any) error {
 	b, err := json.Marshal(v)
 	if err != nil {

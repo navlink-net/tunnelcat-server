@@ -49,6 +49,16 @@ func (h *handler) apiAppLogUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Global log-upload kill switch only -- this path has no reliable
+	// per-user identity to check against (see the "" username comment
+	// below), so per-user preference/override can't be enforced here. See
+	// db.go's logUploadAllowed and docs/LOG_UPLOAD_PRIVACY.md.
+	if !h.db.globalLogUploadEnabled() {
+		logInfof("applog-upload: refused (log upload globally disabled) node=%.32s…", nodeID)
+		jsonErr(w, "log upload disabled", http.StatusForbidden)
+		return
+	}
+
 	data, err := io.ReadAll(io.LimitReader(r.Body, int64(nodeLogMaxLen)+1))
 	if err != nil {
 		jsonErr(w, "read error", http.StatusBadRequest)

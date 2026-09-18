@@ -5,6 +5,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"time"
@@ -110,6 +111,19 @@ func (h *handler) apiLogClientUpload(w http.ResponseWriter, r *http.Request) {
 	// upload either way.
 	username := h.db.usernameForDeviceID(nodeID)
 
+	// Log-upload privacy toggles (global kill switch + per-user preference
+	// + staff override, see db.go's logUploadAllowed) -- checked here, not
+	// just left to the client's own judgment, so a client that uploads
+	// anyway (stale build, bug, or deliberate bypass) still gets refused.
+	// Local on-device logging and a manual Share-Logs export are NOT
+	// gated by this -- only this automatic background path. See
+	// docs/LOG_UPLOAD_PRIVACY.md.
+	if !h.db.logUploadAllowed(username) {
+		logInfof("log-client-upload: refused (log upload disabled) type=%s node=%.16s… user=%s", nodeType, nodeID, username)
+		jsonErr(w, "log upload disabled for this account", http.StatusForbidden)
+		return
+	}
+
 	if err := h.logs.Store(nodeType, nodeID, username, data); err != nil {
 		logWarnf("log-client-upload: store type=%s node=%.16s…: %v", nodeType, nodeID, err)
 		jsonErr(w, "store error", http.StatusInternalServerError)
@@ -130,4 +144,91 @@ func (h *handler) apiLogClientUpload(w http.ResponseWriter, r *http.Request) {
 	logInfof("log-client-upload: stored type=%s node=%.16s… user=%s format=%s size=%d", nodeType, nodeID, username, logFormat, len(data))
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"ok":true}`)) //nolint:errcheck
+}
+
+// logUploadPrefResponse is the shared JSON shape for both the GET and POST
+// handlers below, so a client reads exactly the same fields no matter which
+// one it just called.
+type logUploadPrefResponse struct {
+	Enabled       bool `json:"enabled"`        // this user's own preference
+	AdminDisabled bool `json:"admin_disabled"` // staff override, if any
+	GlobalEnabled bool `json:"global_enabled"` // system-wide kill switch
+	Effective     bool `json:"effective"`      // what actually happens right now (AND of all three)
+}
+
+// apiLogClientUploadPrefGet handles GET /api/log/client-upload/pref -- lets
+// the app's own settings UI show the user their current log-upload
+// preference and whether it's actually taking effect (e.g. a user might
+// have it enabled but a staff override or the global switch still blocks
+// it). Same auth/identity model as apiLogClientUpload: shared bearer key +
+// self-reported X-Node-ID resolved to a username via client_conn_stats.
+func (h *handler) apiLogClientUploadPrefGet(w http.ResponseWriter, r *http.Request) {
+	if !h.checkLogUploadClientKey(r) {
+		jsonErr(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	nodeID := r.Header.Get("X-Node-ID")
+	if nodeID == "" {
+		jsonErr(w, "X-Node-ID required", http.StatusBadRequest)
+		return
+	}
+	username := h.db.usernameForDeviceID(nodeID)
+	userEnabled, adminDisabled := h.db.userLogUploadPrefs(username)
+	resp := logUploadPrefResponse{
+		Enabled:       userEnabled,
+		AdminDisabled: adminDisabled,
+		GlobalEnabled: h.db.globalLogUploadEnabled(),
+	}
+	resp.Effective = resp.GlobalEnabled && resp.Enabled && !resp.AdminDisabled
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp) //nolint:errcheck
+}
+
+// apiLogClientUploadPrefSet handles POST /api/log/client-upload/pref
+// {"enabled": bool} -- the actual settings-UI toggle action. Only ever
+// changes the user's OWN preference; a staff override (set via the admin
+// API, see admin_log_upload.go) can't be cleared from here by design --
+// otherwise "admin forces this account off" would mean nothing.
+func (h *handler) apiLogClientUploadPrefSet(w http.ResponseWriter, r *http.Request) {
+	if !h.checkLogUploadClientKey(r) {
+		jsonErr(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	nodeID := r.Header.Get("X-Node-ID")
+	if nodeID == "" {
+		jsonErr(w, "X-Node-ID required", http.StatusBadRequest)
+		return
+	}
+	username := h.db.usernameForDeviceID(nodeID)
+	if username == "" {
+		// No resolvable account for this device yet (e.g. no conn-stats
+		// report has landed since the client last started) -- nothing to
+		// persist a per-user preference against. The client should retry
+		// once it has reported at least one conn-stats sample.
+		jsonErr(w, "no account resolved for this device yet", http.StatusConflict)
+		return
+	}
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<10)).Decode(&req); err != nil {
+		jsonErr(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := h.db.setUserLogUploadEnabled(username, req.Enabled); err != nil {
+		logWarnf("log-client-upload-pref: set user=%s enabled=%v: %v", username, req.Enabled, err)
+		jsonErr(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	logInfof("log-client-upload-pref: user=%s set enabled=%v", username, req.Enabled)
+
+	userEnabled, adminDisabled := h.db.userLogUploadPrefs(username)
+	resp := logUploadPrefResponse{
+		Enabled:       userEnabled,
+		AdminDisabled: adminDisabled,
+		GlobalEnabled: h.db.globalLogUploadEnabled(),
+	}
+	resp.Effective = resp.GlobalEnabled && resp.Enabled && !resp.AdminDisabled
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp) //nolint:errcheck
 }

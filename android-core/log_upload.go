@@ -68,6 +68,20 @@ func (lu *logUploader) Start(pickDialer func() *snc.TunnelDialer, wildcatActive 
 
 func (lu *logUploader) Stop() { lu.inner.Stop() }
 
+// GetPref and SetPref pass through to the shared snc.LogUploader -- see
+// tunnel_cat/snc/core/log_upload_pref.go for the actual HTTP calls and
+// docs/LOG_UPLOAD_PRIVACY.md for what this preference governs. Called from
+// snc-core's "log-upload-pref-get"/"log-upload-pref-set" IPC commands
+// (Kotlin has no direct Go call path -- same reasoning as ClubStatusResponse
+// being polled instead of pushed, see runState's doc comment).
+func (lu *logUploader) GetPref(dialer *snc.TunnelDialer) (snc.LogUploadPrefResponse, error) {
+	return lu.inner.GetPref(dialer)
+}
+
+func (lu *logUploader) SetPref(dialer *snc.TunnelDialer, enabled bool) (snc.LogUploadPrefResponse, error) {
+	return lu.inner.SetPref(dialer, enabled)
+}
+
 // UploadLogBytes gzip-compresses plain and POSTs it to the control's
 // /p/v1/log/upload endpoint via the relay API channel (uTLS, ChRelayAPI
 // session ID), bypassing the VPN TUN with dialControl. Shared by the
