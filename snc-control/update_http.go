@@ -62,6 +62,9 @@ func parseClientUpdatePath(path string) (slug, fileName, contentType string, ok 
 	case strings.HasSuffix(rest, ".sha256"):
 		slug = strings.TrimSuffix(rest, ".sha256")
 		fileName, contentType = "sha256", "text/plain; charset=utf-8"
+	case strings.HasSuffix(rest, ".sig"):
+		slug = strings.TrimSuffix(rest, ".sig")
+		fileName, contentType = "sig", "text/plain; charset=utf-8"
 	default:
 		slug = rest
 		fileName, contentType = "bin", "application/octet-stream"

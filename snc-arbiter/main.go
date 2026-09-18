@@ -5,6 +5,8 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"net/http"
@@ -70,6 +72,9 @@ func main() {
 	contentDir := flag.String("content-dir", "", "directory mirrored to all clients via the content-manifest (torrent-like distribution); empty = disabled")
 	uploadKey := flag.String("upload-key", "", "secret key required to upload client binaries via /admin/downloads/upload (empty = require admin session only)")
 	peerArbiters := flag.String("peer-arbiters", "", "comma-separated base URLs of fellow arbiter cluster nodes (e.g. https://167.233.213.155) to replicate uploaded client binaries to; empty = no replication")
+	peerArbiterFingerprints := flag.String("peer-arbiter-fingerprints", "", "comma-separated host=SHA256FINGERPRINT pairs (colon-hex, e.g. AA:BB:...) pinning each --peer-arbiters host's TLS cert for replication; a peer missing here replicates unpinned (logged)")
+	updateSigningKeyFlag := flag.String("update-signing-key", "", "hex-encoded Ed25519 private key (64 bytes / 128 hex chars) used to sign every uploaded OTA client binary; empty = updates ship WITHOUT a signature (not recommended -- see docs/UPDATE_SIGNING.md). Must be the SAME value on every arbiter cluster node.")
+	updateSigningKeyFile := flag.String("update-signing-key-file", "", "path to a file containing the hex-encoded Ed25519 private key (alternative to --update-signing-key, so the key itself never appears in a process listing/shell history)")
 	appLogKey := flag.String("app-log-key", "", "bearer key embedded in client APKs for direct app-log upload via /api/log/app-upload (empty = disabled)")
 	bananameterClientKey := flag.String("bananameter-client-key", "", "bearer key embedded in every client build for /api/bananameter/client-result (empty = disabled)")
 	logUploadClientKey := flag.String("log-upload-client-key", "", "bearer key embedded in every client build for /api/log/client-upload (empty = disabled)")
@@ -147,6 +152,38 @@ func main() {
 		if p = strings.TrimSpace(p); p != "" {
 			h.peerArbiters = append(h.peerArbiters, p)
 		}
+	}
+	if *peerArbiterFingerprints != "" {
+		h.peerArbiterFingerprints = make(map[string]string)
+		for _, pair := range strings.Split(*peerArbiterFingerprints, ",") {
+			pair = strings.TrimSpace(pair)
+			host, fp, ok := strings.Cut(pair, "=")
+			if !ok || host == "" || fp == "" {
+				logWarnf("--peer-arbiter-fingerprints: skipping malformed entry %q (want host=FINGERPRINT)", pair)
+				continue
+			}
+			h.peerArbiterFingerprints[host] = fp
+		}
+	}
+	updateKeyHex := *updateSigningKeyFlag
+	if updateKeyHex == "" && *updateSigningKeyFile != "" {
+		b, err := os.ReadFile(*updateSigningKeyFile)
+		if err != nil {
+			logErrorf("--update-signing-key-file %s: %v", *updateSigningKeyFile, err)
+			os.Exit(1)
+		}
+		updateKeyHex = strings.TrimSpace(string(b))
+	}
+	if updateKeyHex != "" {
+		key, err := parseUpdateSigningKeyHex(updateKeyHex)
+		if err != nil {
+			logErrorf("%v", err)
+			os.Exit(1)
+		}
+		h.updateSigningKey = key
+		logInfof("update-signing: enabled (pubkey=%s)", hex.EncodeToString([]byte(key.Public().(ed25519.PublicKey))))
+	} else {
+		logWarnf("update-signing: DISABLED (--update-signing-key/--update-signing-key-file not set) -- any client built with update-signature verification will REJECT every OTA update from this arbiter and stop self-updating until this is configured, see docs/UPDATE_SIGNING.md")
 	}
 	h.appLogKey = *appLogKey
 	h.bananameterClientKey = *bananameterClientKey

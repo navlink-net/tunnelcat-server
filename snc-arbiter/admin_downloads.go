@@ -7,11 +7,11 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,6 +47,7 @@ type clientBinaryInfo struct {
 	Size    int64
 	ModTime time.Time
 	Version string
+	Sig     string // Ed25519 signature over slug|version|hash, base64url; empty if unsigned
 }
 
 type downloadsPageData struct {
@@ -69,11 +70,13 @@ func (h *handler) readClientBinaryInfo(filename string) clientBinaryInfo {
 	}
 	hash, _ := os.ReadFile(filepath.Join(h.updateDir, filename+".sha256"))
 	ver, _ := os.ReadFile(filepath.Join(h.updateDir, filename+".version"))
+	sig, _ := os.ReadFile(filepath.Join(h.updateDir, filename+".sig"))
 	return clientBinaryInfo{
 		Hash:    strings.TrimSpace(string(hash)),
 		Size:    fi.Size(),
 		ModTime: fi.ModTime(),
 		Version: strings.TrimSpace(string(ver)),
+		Sig:     strings.TrimSpace(string(sig)),
 	}
 }
 
@@ -217,6 +220,14 @@ func (h *handler) adminDownloadsUpload(w http.ResponseWriter, r *http.Request) {
 				logWarnf("upload: write version: %v", err)
 			}
 		}
+		if h.updateSigningKey != nil && version != "" {
+			sig := signUpdate(h.updateSigningKey, binaryType, version, hexHash)
+			if err := os.WriteFile(dst+".sig", []byte(sig+"\n"), 0644); err != nil {
+				logWarnf("upload: write sig: %v", err)
+			}
+		} else if version != "" {
+			logWarnf("upload: --update-signing-key not configured -- %s ships without a .sig, and any already-rebuilt client will REJECT it and stop self-updating (see docs/UPDATE_SIGNING.md)", canonicalName)
+		}
 		logInfof("upload: installed %s size=%d sha256=%.16s… version=%q", canonicalName, size, hexHash, version)
 		// Notify all live controls so they pull the new client binary immediately
 		// instead of waiting for their 15-minute polling cycle.
@@ -255,6 +266,18 @@ func (h *handler) replicateToPeers(binaryType, version, diskPath, canonicalName 
 		}
 		logInfof("upload: replicated %s to peer %s", canonicalName, peer)
 	}
+}
+
+// peerHost extracts the bare host (no scheme/port) from a peerArbiters base
+// URL, matching how --peer-arbiter-fingerprints keys its map -- so an
+// operator can write the same host they already put in --peer-arbiters
+// without also having to keep a port/scheme variant in sync.
+func peerHost(peerBaseURL string) string {
+	u, err := url.Parse(peerBaseURL)
+	if err != nil {
+		return peerBaseURL
+	}
+	return u.Hostname()
 }
 
 func (h *handler) replicateOneUpload(peerBaseURL, binaryType, version, diskPath string) error {
@@ -296,14 +319,20 @@ func (h *handler) replicateOneUpload(peerBaseURL, binaryType, version, diskPath 
 		req.Header.Set("Authorization", "Bearer "+h.uploadKey)
 	}
 
-	// InsecureSkipVerify: each arbiter node's TLS cert is issued for its own
-	// bare IP (see docs/ARBITER_FAILOVER.md), not its peer's -- a strict
-	// verify would reject every peer connection.
+	// Each arbiter node's TLS cert is issued for its own bare IP (see
+	// docs/ARBITER_FAILOVER.md), not its peer's -- a strict PKI verify would
+	// reject every peer connection, so this pins by certificate fingerprint
+	// instead (see tls_pin.go and --peer-arbiter-fingerprints), the same
+	// approach ChRelayAPI already uses for control nodes. An unconfigured
+	// peer connects unpinned rather than failing outright -- logged so it
+	// doesn't go unnoticed.
+	fp := h.peerArbiterFingerprints[peerHost(peerBaseURL)]
+	if fp == "" {
+		logWarnf("upload: no fingerprint configured for peer %s, replicating unpinned", peerBaseURL)
+	}
 	client := &http.Client{
-		Timeout: 5 * time.Minute,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
+		Timeout:   5 * time.Minute,
+		Transport: &http.Transport{TLSClientConfig: pinnedTLSConfig(fp)},
 	}
 	resp, err := client.Do(req)
 	if err != nil {

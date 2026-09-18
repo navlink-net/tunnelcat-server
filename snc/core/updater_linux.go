@@ -114,6 +114,15 @@ func (u *Updater) checkAndDownload() {
 		}
 		expectedHash := strings.ToLower(fields[0])
 
+		// Fetch the Ed25519 signature sidecar -- see updater.go's step 2b
+		// for why an empty/missing sidecar isn't itself fatal here.
+		var sig string
+		if resp2b, err := updateHTTPClient.Get(upBase + "/client-linux.sig"); err == nil {
+			body2b, _ := io.ReadAll(resp2b.Body)
+			resp2b.Body.Close()
+			sig = strings.TrimSpace(string(body2b))
+		}
+
 		exe, err := os.Executable()
 		if err != nil {
 			Log.Printf("updater: executable: %v", err)
@@ -157,6 +166,14 @@ func (u *Updater) checkAndDownload() {
 		}
 		if !downloaded {
 			Log.Printf("updater: all %d download attempts failed for %s, trying next control", maxAttempts, upBase)
+			continue
+		}
+
+		// Verify the Ed25519 signature -- see updater.go's step 3b for why
+		// this, not the SHA-256 above, is the actual security boundary.
+		if !VerifyUpdateSig("linux", remoteVersion, actualHash, sig) {
+			os.Remove(updatePath) //nolint:errcheck
+			Log.Printf("updater: REJECTING update %s from %s: invalid or missing Ed25519 signature (sig=%.16s…) -- refusing to install", remoteVersion, upBase, sig)
 			continue
 		}
 

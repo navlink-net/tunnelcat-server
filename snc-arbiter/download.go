@@ -15,6 +15,7 @@ type downloadInfoEntry struct {
 	Available bool   `json:"available"`
 	Version   string `json:"version,omitempty"`
 	Hash      string `json:"hash,omitempty"`
+	Sig       string `json:"sig,omitempty"` // Ed25519 signature over slug|version|hash, base64url; empty if unsigned
 }
 
 // apiDownloadsInfo is a public, unauthenticated JSON endpoint exposing the

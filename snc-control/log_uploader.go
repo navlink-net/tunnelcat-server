@@ -7,10 +7,11 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
-	"crypto/tls"
 	"net/http"
 	"sync"
 	"time"
+
+	"tunnel_cat/snc/core"
 )
 
 const logUploadInterval = 5 * time.Minute
@@ -80,23 +81,36 @@ func startControlLogUploader(exits *ExitRegistry, token string) {
 		nodeID = nodeID[:16]
 	}
 
-	proxyClient := &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		},
-	}
-
 	go func() {
 		t := time.NewTicker(logUploadInterval)
 		defer t.Stop()
 		for range t.C {
-			uploadControl(exits, proxyClient, token, nodeID)
+			uploadControl(exits, token, nodeID)
 		}
 	}()
 }
 
-func uploadControl(exits *ExitRegistry, client *http.Client, token, nodeID string) {
+// logUploadClient builds an HTTP client pinned to exitFingerprint -- the same
+// fingerprint this exit was already verified against once at registration
+// (see exits.go's verifyExitFingerprint) -- instead of a bare
+// InsecureSkipVerify with no verification at all. A fresh client per call is
+// required because the picked exit (and therefore the fingerprint to pin to)
+// changes every upload cycle; a shared package-level client can't pin to a
+// moving target. Added 2026-09-18: without this, a malicious exit (the
+// least-trusted, most heterogeneous node class in the fleet) could
+// TLS-terminate this "blind" hop itself and harvest this control's own node
+// token instead of just relaying encrypted bytes through to the arbiter.
+func logUploadClient(exitFingerprint string) *http.Client {
+	if exitFingerprint == "" {
+		logWarnf("log-uploader: exit has no known fingerprint yet, connecting unpinned")
+	}
+	return &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: core.PinnedTLSConfig(exitFingerprint)},
+	}
+}
+
+func uploadControl(exits *ExitRegistry, token, nodeID string) {
 	if controlRingBuf == nil {
 		return
 	}
@@ -123,6 +137,7 @@ func uploadControl(exits *ExitRegistry, client *http.Client, token, nodeID strin
 		return
 	}
 	uploadURL := exitProxyURL(exit.Addr, "/api/log/upload")
+	client := logUploadClient(exit.Fingerprint)
 
 	req, err := http.NewRequest(http.MethodPost, uploadURL, &gz)
 	if err != nil {

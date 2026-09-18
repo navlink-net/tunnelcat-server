@@ -30,7 +30,23 @@ const (
 	bananameterBaseURL    = "https://bananameter.net"
 	bananameterPingPath   = "/measure_ping.dat"
 	bananameterSmallPath  = "/measure_small.dat"
-	bananameterAPIKey     = "01Az8nB8mB4cCV" // same public Camerlengo API key embedded in every real client
+	// bananameterAPIKey is the standard SNC "APIKey" field passed to
+	// core.NewAuthenticator/Login below -- the exact same value every real
+	// client already carries inside its own issued SNC key string (see
+	// snc-arbiter's admin_keygen.go, keyPayload.APIKey), NOT a Camerlengo
+	// admin/master credential. It identifies the calling application to the
+	// arbiter's login flow; it is not what authorizes anything -- the
+	// prober account's actual username/password does that, same as any
+	// real user. Re-examined 2026-09-18 during a security review that
+	// initially (incorrectly) flagged this as a leaked privileged secret:
+	// it was already fully recoverable from any single installed client
+	// (strings on the binary, or a packet capture of the login request)
+	// long before this value ever appeared in open-source form here.
+	// Rotating it would break every already-issued key for no security
+	// benefit. Left as a literal (not a build-time -X flag like Version)
+	// specifically because it ships in every issued key string anyway --
+	// there is nothing to protect by hiding it from source.
+	bananameterAPIKey = "01Az8nB8mB4cCV"
 )
 
 // controlBananameterProber owns control's periodic per-exit probe.

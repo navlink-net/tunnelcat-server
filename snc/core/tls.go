@@ -114,6 +114,26 @@ func verifyPeerCertFingerprint(expectedFP string) func(rawCerts [][]byte, _ [][]
 	}
 }
 
+// PinnedTLSConfig returns a *tls.Config for connecting to a peer whose
+// identity is verified by certificate fingerprint instead of the normal PKI
+// chain (the same mechanism ChRelayAPI already uses for control nodes --
+// verifyPeerCertFingerprint above). Exported for other snc-* server binaries
+// (snc-arbiter, snc-control) that need to pin a one-off peer connection --
+// e.g. arbiter-to-arbiter replication, or control re-dialing an exit it has
+// already fingerprint-verified once -- instead of falling back to a bare
+// InsecureSkipVerify with no verification at all.
+//
+// An empty expectedFP accepts unconditionally, same as
+// verifyPeerCertFingerprint: this is "not pinned yet", not a verification
+// failure. Callers should log when that happens so an unpinned peer doesn't
+// go unnoticed.
+func PinnedTLSConfig(expectedFP string) *tls.Config {
+	return &tls.Config{
+		InsecureSkipVerify:    true, //nolint:gosec // fingerprint verified manually below
+		VerifyPeerCertificate: verifyPeerCertFingerprint(expectedFP),
+	}
+}
+
 // Channel type constants embedded in ClientHello Session ID for server-side
 // demultiplexing. The two-byte marker {chMagic, channelType} at sid[0:2]
 // identifies an SNC connection; standard TLS 1.3 clients send a random 32-byte

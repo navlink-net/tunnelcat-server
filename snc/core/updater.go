@@ -179,6 +179,18 @@ func (u *Updater) checkAndDownload() {
 		}
 		expectedHash := strings.ToLower(fields[0])
 
+		// 2b. Fetch the Ed25519 signature sidecar. An empty/missing sidecar
+		// is not itself fatal here -- verifyUpdateSignature below is what
+		// actually decides whether an unsigned update is acceptable (an
+		// arbiter with no --update-signing-key configured ships unsigned,
+		// logged loudly on its own side).
+		var sig string
+		if resp2b, err := updateHTTPClient.Get(upBase + "/client-" + slug + ".sig"); err == nil {
+			body2b, _ := io.ReadAll(resp2b.Body)
+			resp2b.Body.Close()
+			sig = strings.TrimSpace(string(body2b))
+		}
+
 		exe, err := os.Executable()
 		if err != nil {
 			Log.Printf("updater: executable: %v", err)
@@ -230,6 +242,22 @@ func (u *Updater) checkAndDownload() {
 		}
 		if !downloaded {
 			Log.Printf("updater: all %d download attempts failed for %s, trying next control", maxAttempts, upBase)
+			continue
+		}
+
+		// 3b. Verify the Ed25519 signature over (slug, version, hash). This
+		// is the actual security boundary, not the SHA-256 check above: the
+		// control this was fetched from is addressed by IP with a
+		// self-signed cert (updateHTTPClient skips TLS verification
+		// entirely, see its doc comment), and the SHA-256 itself was
+		// fetched over that exact same unauthenticated channel -- an
+		// attacker who can serve step 3's ZIP can just as easily serve a
+		// matching fake hash in step 2. Only a signature under a key the
+		// attacker doesn't have closes that gap. Added 2026-09-18, see the
+		// 2026-09 security review.
+		if !VerifyUpdateSig(slug, remoteVersion, actualHash, sig) {
+			os.Remove(zipPath)
+			Log.Printf("updater: REJECTING update %s from %s: invalid or missing Ed25519 signature (sig=%.16s…) -- refusing to install", remoteVersion, upBase, sig)
 			continue
 		}
 

@@ -62,7 +62,23 @@ type handler struct {
 	// existed on that one node's disk, and ~half of real download/OTA
 	// requests (whichever the LB routed to the other node) 404'd. Empty =
 	// no replication (single-node deployments, or intentionally disabled).
-	peerArbiters         []string
+	peerArbiters []string
+	// peerArbiterFingerprints maps a peerArbiters base URL's host to the
+	// expected SHA-256 TLS certificate fingerprint (colon-hex) for that peer,
+	// so replicateOneUpload can pin the connection instead of relying on a
+	// bare InsecureSkipVerify with no verification at all -- see tls_pin.go
+	// and --peer-arbiter-fingerprints. A peer missing from this map connects
+	// unpinned (logged), same backward-compat rule as control-node pinning.
+	peerArbiterFingerprints map[string]string
+	// updateSigningKey, when set, signs every uploaded OTA client binary's
+	// (slug, version, sha256) with Ed25519 at upload time (see
+	// adminDownloadsUpload) -- clients verify against
+	// core.UpdateSigningPubKeyHex before ever executing a downloaded update.
+	// nil = updates are NOT signed (pre-2026-09-18 behavior: SHA-256 only,
+	// which by itself is not a security boundary against an active
+	// attacker -- see the 2026-09 security review). Set via
+	// --update-signing-key.
+	updateSigningKey     ed25519.PrivateKey
 	appLogKey            string // bearer key embedded in client APKs for /api/log/app-upload; empty = disabled
 	bananameterClientKey string // bearer key embedded in every client build for /api/bananameter/client-result; empty = disabled
 	logUploadClientKey   string // legacy bearer key for /api/log/client-upload; kept for clients built before clientTelemetryKey existed -- see checkClientOrLegacyKey

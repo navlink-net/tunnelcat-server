@@ -38,7 +38,7 @@ func (h *handler) apiUpdateManifest(w http.ResponseWriter, r *http.Request) {
 		if info.Size == 0 {
 			continue
 		}
-		resp[slug] = downloadInfoEntry{Available: true, Version: info.Version, Hash: info.Hash}
+		resp[slug] = downloadInfoEntry{Available: true, Version: info.Version, Hash: info.Hash, Sig: info.Sig}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp) //nolint:errcheck
@@ -66,6 +66,8 @@ func (h *handler) apiUpdateDist(w http.ResponseWriter, r *http.Request) {
 		filename = canonicalName + ".version"
 	case "sha256":
 		filename = canonicalName + ".sha256"
+	case "sig":
+		filename = canonicalName + ".sig"
 	case "bin":
 		filename = canonicalName
 	default:

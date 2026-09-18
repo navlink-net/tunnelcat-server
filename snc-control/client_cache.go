@@ -128,6 +128,7 @@ type manifestEntry struct {
 	Available bool   `json:"available"`
 	Version   string `json:"version"`
 	Hash      string `json:"hash"`
+	Sig       string `json:"sig"` // Ed25519 signature over slug|version|hash, base64url; empty if the arbiter shipped it unsigned
 }
 
 func (c *clientCache) fetchAll() {
@@ -151,7 +152,7 @@ func (c *clientCache) fetchAll() {
 		if !entry.Available {
 			continue
 		}
-		c.fetchOne(slug, entry.Version, entry.Hash)
+		c.fetchOne(slug, entry.Version, entry.Hash, entry.Sig)
 	}
 }
 
@@ -178,7 +179,11 @@ func (c *clientCache) getManifest(client *http.Client, exitAddr string) (map[str
 
 // fetchOne fetches a single distributable's binary (identified by slug) and
 // atomically installs it in cacheDir/<slug>/, unless already at remoteVersion.
-func (c *clientCache) fetchOne(slug, remoteVersion, expectedHash string) {
+// sig is the arbiter's Ed25519 signature sidecar (may be empty if the
+// arbiter isn't configured to sign updates) -- cached alongside version/
+// sha256 purely for update_http.go to serve; this cache layer doesn't
+// itself verify it, the client's updater does at apply time.
+func (c *clientCache) fetchOne(slug, remoteVersion, expectedHash, sig string) {
 	remoteVersion = strings.TrimSpace(remoteVersion)
 	if remoteVersion == "" {
 		return
@@ -234,6 +239,11 @@ func (c *clientCache) fetchOne(slug, remoteVersion, expectedHash string) {
 
 	os.WriteFile(filepath.Join(slugDir, "sha256"), []byte(expectedHash+"\n"), 0644)   //nolint:errcheck
 	os.WriteFile(filepath.Join(slugDir, "version"), []byte(remoteVersion+"\n"), 0644) //nolint:errcheck
+	if sig != "" {
+		os.WriteFile(filepath.Join(slugDir, "sig"), []byte(sig+"\n"), 0644) //nolint:errcheck
+	} else {
+		os.Remove(filepath.Join(slugDir, "sig")) // stale sig from a previous, signed version must not linger
+	}
 
 	logInfof("client-cache(%s): version %s cached sha256=%.16s…", slug, remoteVersion, expectedHash)
 }
