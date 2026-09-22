@@ -126,3 +126,43 @@ func certFingerprint(der []byte) string {
 	}
 	return strings.Join(parts, ":")
 }
+
+// pinnedTLSConfig returns a *tls.Config for dialing another exit whose
+// identity is verified by certificate fingerprint rather than the normal PKI
+// chain -- the same mechanism control-node connections already use (see
+// tunnel_cat/snc/core/tls.go's PinnedTLSConfig; duplicated here in package
+// main rather than imported so this file's own certFingerprint stays the
+// single source of truth for the fingerprint format both sides compare).
+//
+// Added 2026-09 security review #2: dialPeer/probePeer/fetchPeerCapabilities
+// previously used a bare InsecureSkipVerify with no verification at all,
+// letting an on-path attacker between two exit-node datacenters MITM
+// relayed user traffic and this exit's own bearer node token. expectedFP
+// comes from PeerEntry.Fingerprint, itself sourced from the arbiter's
+// Ed25519-signed "exits" list -- empty only when the arbiter hasn't
+// recorded a fingerprint for that peer yet (e.g. autocert not fetched),
+// in which case this intentionally behaves like an unpinned bootstrap
+// connection rather than refusing to dial at all, exactly like
+// verifyPeerCertFingerprint's own doc comment describes for the client side.
+func pinnedTLSConfig(expectedFP string) *tls.Config {
+	return &tls.Config{
+		InsecureSkipVerify:    true, //nolint:gosec // fingerprint verified manually below
+		VerifyPeerCertificate: verifyPeerCertFingerprint(expectedFP),
+	}
+}
+
+func verifyPeerCertFingerprint(expectedFP string) func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+	return func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+		if expectedFP == "" {
+			return nil
+		}
+		if len(rawCerts) == 0 {
+			return fmt.Errorf("tls: no certificate presented")
+		}
+		got := certFingerprint(rawCerts[0])
+		if got != strings.ToUpper(expectedFP) {
+			return fmt.Errorf("tls: peer certificate fingerprint mismatch: got %s want %s", got, strings.ToUpper(expectedFP))
+		}
+		return nil
+	}
+}

@@ -5,6 +5,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"html"
 	"net/http"
@@ -463,8 +464,19 @@ func (h *handler) checkAdminAPIToken(r *http.Request) bool {
 		return false
 	}
 	stored, ok, err := h.db.getSetting("admin_api_token")
-	if err != nil || !ok {
+	if err != nil || !ok || stored == "" {
 		return false
 	}
-	return stored != "" && stored == token
+	// subtle.ConstantTimeCompare requires equal-length inputs to say
+	// anything meaningful; a length mismatch is already a safe "no" (no
+	// timing signal worth hiding once lengths differ) and lets the
+	// constant-time compare below assume equal length. Added 2026-09
+	// security review #2 -- this long-lived bearer secret (full admin API
+	// access) was previously compared with plain ==, which short-circuits
+	// on the first mismatched byte and is a classic remote timing-attack
+	// target.
+	if len(stored) != len(token) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(stored), []byte(token)) == 1
 }

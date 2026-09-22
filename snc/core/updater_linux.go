@@ -198,10 +198,17 @@ func (u *Updater) checkAndDownload() {
 // meant to be installed on in the first place -- avoids pulling in a pure-Go
 // xz decoder just to unpack data.tar.xz by hand.
 //
-// No separate SHA-256 check here, unlike the HTTP path -- the torrent
-// engine already verified every piece against the magnet's btih before
-// reporting the download complete.
-func ApplyTorrentDownloadedDeb(debPath string) error {
+// expectedSHA256Hex must be the manifest-signed hash for the "linux" slug
+// (Discoverer.TorrentHash) -- a BitTorrent infohash alone only proves the
+// downloaded bytes match whatever magnet the client was given, not that the
+// magnet came from the arbiter (2026-09 security review #2; see
+// signedManifest's doc comment in discovery.go).
+func ApplyTorrentDownloadedDeb(debPath string, expectedSHA256Hex string) error {
+	if err := VerifyTorrentFileHash(debPath, expectedSHA256Hex); err != nil {
+		os.Remove(debPath) //nolint:errcheck
+		Log.Printf("updater: REJECTING torrent update %s: %v", debPath, err)
+		return err
+	}
 	tmpDir, err := os.MkdirTemp("", "snc-torrent-update-*")
 	if err != nil {
 		return fmt.Errorf("mkdtemp: %w", err)

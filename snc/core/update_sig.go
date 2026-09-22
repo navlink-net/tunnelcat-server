@@ -6,8 +6,13 @@ package core
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
+	"io"
+	"os"
+	"strings"
 )
 
 // UpdateSigningPubKeyHex is the Ed25519 public key (hex, 32 bytes) that
@@ -83,6 +88,36 @@ func ParseUpdateSigningKeyHex(hexKey string) (ed25519.PrivateKey, error) {
 		return nil, errUpdateKeySize
 	}
 	return ed25519.PrivateKey(b), nil
+}
+
+// VerifyTorrentFileHash hashes the file at path and compares it against
+// expectedSHA256Hex (case-insensitive hex). Used by every platform's
+// ApplyTorrentDownloaded* to check a torrent-delivered update artifact
+// against the manifest-signed hash (Discoverer.TorrentHash) before it is
+// extracted/installed -- a BitTorrent infohash alone only proves the bytes
+// match the magnet the client happened to be given, not that the magnet
+// came from the arbiter; this closes that gap. Fails closed: an empty
+// expectedSHA256Hex (no signed hash known for this slug -- e.g. an old
+// arbiter, or the manifest hasn't been fetched yet) is treated as a mismatch,
+// never as "no check requested."
+func VerifyTorrentFileHash(path, expectedSHA256Hex string) error {
+	if expectedSHA256Hex == "" {
+		return fmt.Errorf("torrent update: no signed hash known for this artifact, refusing to install")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("torrent update: open %s: %w", path, err)
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return fmt.Errorf("torrent update: hash %s: %w", path, err)
+	}
+	actual := hex.EncodeToString(h.Sum(nil))
+	if !strings.EqualFold(actual, expectedSHA256Hex) {
+		return fmt.Errorf("torrent update: SHA-256 mismatch for %s: manifest says %s, got %s -- refusing to install", path, expectedSHA256Hex, actual)
+	}
+	return nil
 }
 
 var errUpdateKeySize = updateKeySizeError{}

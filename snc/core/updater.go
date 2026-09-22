@@ -281,12 +281,19 @@ func (u *Updater) checkAndDownload() {
 // ApplyTorrentDownloadedZip stages a torrent-downloaded update ZIP at the
 // same location ApplyPendingUpdate expects, mirroring checkAndDownload's own
 // steps 4 onward (extract .exe, place at installerUpdateBinary/
-// clientUpdateBinary). No separate SHA-256 check here, unlike the HTTP path
-// -- the torrent engine already verified every piece against the magnet's
-// btih (itself derived from the file's content) before reporting the
-// download complete, so the integrity guarantee is already as strong as the
-// HTTP path's explicit hash check.
-func ApplyTorrentDownloadedZip(zipPath string, installerManaged bool) error {
+// clientUpdateBinary). expectedSHA256Hex must be the manifest-signed hash
+// for this slug (Discoverer.TorrentHash) -- a BitTorrent infohash alone only
+// proves the downloaded bytes match whatever magnet the client was given,
+// not that the magnet itself came from the arbiter (see signedManifest's
+// doc comment in discovery.go for the incident this closes: 2026-09
+// security review #2, a compromised control node could otherwise splice in
+// an attacker-controlled magnet and get arbitrary code installed).
+func ApplyTorrentDownloadedZip(zipPath string, installerManaged bool, expectedSHA256Hex string) error {
+	if err := VerifyTorrentFileHash(zipPath, expectedSHA256Hex); err != nil {
+		os.Remove(zipPath) //nolint:errcheck
+		Log.Printf("updater: REJECTING torrent update %s: %v", zipPath, err)
+		return err
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("executable: %w", err)

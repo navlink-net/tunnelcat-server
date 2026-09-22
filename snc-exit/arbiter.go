@@ -67,10 +67,15 @@ func (a *authClient) fetchExitList() ([]PeerEntry, string, error) {
 		return nil, "", fmt.Errorf("fetch exits: read: %w", err)
 	}
 
-	// SignedList wire format (advisory Regions/SelfRegion are unsigned, safe to read).
+	// SignedList wire format (advisory Regions/SelfRegion are unsigned, safe
+	// to read as-is; Fingerprint IS part of the arbiter's Ed25519-signed
+	// canonical payload -- see snc-arbiter/signing.go's NodeEntry/signList --
+	// which is what makes pinning against it in dialPeer/probePeer/
+	// fetchPeerCapabilities meaningful).
 	var sl struct {
 		Nodes []struct {
-			Addr string `json:"addr"`
+			Addr        string `json:"addr"`
+			Fingerprint string `json:"fingerprint"`
 		} `json:"nodes"`
 		Regions    map[string]string `json:"regions"` // addr → ISO code
 		SelfRegion string            `json:"self_region"`
@@ -82,8 +87,9 @@ func (a *authClient) fetchExitList() ([]PeerEntry, string, error) {
 	out := make([]PeerEntry, 0, len(sl.Nodes))
 	for _, n := range sl.Nodes {
 		out = append(out, PeerEntry{
-			Addr:   n.Addr,
-			Region: sl.Regions[n.Addr],
+			Addr:        n.Addr,
+			Region:      sl.Regions[n.Addr],
+			Fingerprint: n.Fingerprint,
 		})
 	}
 	return out, sl.SelfRegion, nil

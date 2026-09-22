@@ -912,13 +912,18 @@ func send404(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusNotFound)
 }
 
+// remoteIP returns the real TCP peer address. Unlike snc-arbiter, an exit
+// terminates TLS directly (see main.go: --no-tls/manual cert/autocert/
+// self-signed are all served straight off *listen, no fronting nginx), so
+// there is no legitimate hop that would ever set X-Forwarded-For here --
+// trusting it (as this used to, unconditionally) let any tunnel client pick
+// an arbitrary logged/forensic IP and any exit-relayed request forge a
+// jurisdiction/service-block lookup key for a different address. See
+// X-Client-CC/X-Client-IP elsewhere in this file for the *intentional*,
+// separate mechanism that lets a client self-report its own country to
+// avoid over-broad geo-blocking -- that one is meant to be advisory and
+// user-favoring; this function is not that.
 func remoteIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if i := strings.Index(xff, ","); i >= 0 {
-			return strings.TrimSpace(xff[:i])
-		}
-		return strings.TrimSpace(xff)
-	}
 	host, _, _ := net.SplitHostPort(r.RemoteAddr)
 	return host
 }

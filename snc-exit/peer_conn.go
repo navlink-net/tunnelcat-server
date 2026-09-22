@@ -52,12 +52,14 @@ func dialPeer(peer *PeerEntry, target, nodeToken string, deadline time.Time) (ne
 		return nil, fmt.Errorf("peer dial %s: budget exhausted", addr)
 	}
 
-	// Dial raw TLS to the peer exit (skip hostname verification — exits use
-	// self-signed or LE certs; arbiter fingerprint checking is out of scope here).
+	// Dial raw TLS to the peer exit, pinned against the fingerprint the
+	// arbiter signed for it (see pinnedTLSConfig in tls.go; 2026-09 security
+	// review #2 -- this used to be a bare InsecureSkipVerify with no
+	// verification at all).
 	rawConn, err := tls.DialWithDialer(
 		&net.Dialer{Timeout: dialTimeout},
 		"tcp", addr,
-		&tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		pinnedTLSConfig(peer.Fingerprint),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("peer dial %s: %w", addr, err)

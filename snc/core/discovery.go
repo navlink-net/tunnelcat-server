@@ -50,7 +50,7 @@ type signedManifest struct {
 	Type           string              `json:"type"` // must be "manifest"
 	TS             int64               `json:"ts"`
 	Nodes          []manifestNode      `json:"nodes"`
-	Sig            string              `json:"sig"`                        // base64url Ed25519 over {type,ts,nodes}
+	Sig            string              `json:"sig"`                        // base64url Ed25519 over {type,ts,nodes,torrent_magnets,torrent_manifest_magnet,torrent_hashes}
 	Regions        map[string]string   `json:"regions,omitempty"`          // addr → ISO region code; advisory, not signed
 	Notifications  []Notification      `json:"notifications,omitempty"`    // advisory; not signed
 	NodeSNIs       map[string][]string `json:"node_snis,omitempty"`        // advisory; addr → SNI rotation list
@@ -59,8 +59,21 @@ type signedManifest struct {
 	IPv6Enabled    *bool               `json:"ipv6_enabled,omitempty"`     // advisory; nil = arbiter said nothing, keep local default. Admin kill switch -- see snc-arbiter/admin_ipv6.go
 	NavlinkMirrors []string            `json:"navlink_mirrors,omitempty"`  // advisory; addrs (host:port) of live navlink.net-mirror forwarders
 	TorrentEnabled *bool               `json:"torrent_enabled,omitempty"`  // advisory; nil = arbiter said nothing, keep local default (false). Admin kill switch for the torrent engine -- see snc-arbiter/admin_torrent_enabled.go and this package's TorrentGate.
-	TorrentMagnets        map[string]string `json:"torrent_magnets,omitempty"`         // advisory; product/platform slug -> magnet URI for client software already seeded by the torrent-seed fleet
-	TorrentManifestMagnet string            `json:"torrent_manifest_magnet,omitempty"` // advisory; magnet for the arbiter's own last-published signed manifest torrent -- a fallback recovery path when no control/exit is reachable at all
+	// TorrentMagnets/TorrentManifestMagnet/TorrentHashes are SIGNED, not
+	// advisory (2026-09 security review #2 fix): a magnet on its own only
+	// commits to whatever bytes its own infohash was built from -- it says
+	// nothing about who chose to point a client at that magnet. Before this
+	// fix these three fields were bolted onto the manifest *after* signing
+	// (see snc-arbiter/manifest_client_api.go), so a compromised/malicious
+	// control node could splice in an attacker-controlled magnet + matching
+	// hash while leaving the arbiter's real signature over {type,ts,nodes}
+	// intact, and ApplyTorrentDownloadedZip had no independent signature
+	// check of its own -- a full RCE supply-chain path. Now the client
+	// verifies the downloaded software's own SHA-256 against
+	// TorrentHashes[slug], covered by the same Ed25519 signature as Nodes.
+	TorrentMagnets        map[string]string `json:"torrent_magnets,omitempty"`         // signed; product/platform slug -> magnet URI for client software already seeded by the torrent-seed fleet
+	TorrentManifestMagnet string            `json:"torrent_manifest_magnet,omitempty"` // signed; magnet for the arbiter's own last-published signed manifest torrent -- a fallback recovery path when no control/exit is reachable at all
+	TorrentHashes         map[string]string `json:"torrent_hashes,omitempty"`          // signed; product/platform slug -> hex SHA-256 the download from TorrentMagnets[slug] must hash to -- the actual security boundary for ApplyTorrentDownloadedZip
 }
 
 // Discoverer fetches the signed control-node manifest from the control's relay
@@ -137,6 +150,7 @@ type Discoverer struct {
 	// list itself.
 	torrentMagnets        map[string]string
 	manifestTorrentMagnet string
+	torrentHashes         map[string]string // addr-independent slug -> hex SHA-256; signed (see signedManifest.TorrentHashes)
 
 	// manifestSource tracks how the current manifest was obtained:
 	// 0 = not loaded, 1 = loaded from on-disk cache, 2 = fetched live this session.
@@ -795,12 +809,24 @@ func (d *Discoverer) verify(data []byte) ([]string, map[string]string, []Notific
 	}
 
 	if d.pubkey != nil {
-		// Reconstruct the canonical payload the arbiter signed (advisory fields excluded).
+		// Reconstruct the canonical payload the arbiter signed (advisory
+		// fields excluded, but TorrentMagnets/TorrentManifestMagnet/
+		// TorrentHashes are NOT advisory -- see signedManifest's doc comment).
 		payload := struct {
-			Type  string         `json:"type"`
-			TS    int64          `json:"ts"`
-			Nodes []manifestNode `json:"nodes"`
-		}{Type: m.Type, TS: m.TS, Nodes: m.Nodes}
+			Type                  string            `json:"type"`
+			TS                    int64             `json:"ts"`
+			Nodes                 []manifestNode    `json:"nodes"`
+			TorrentMagnets        map[string]string `json:"torrent_magnets,omitempty"`
+			TorrentManifestMagnet string            `json:"torrent_manifest_magnet,omitempty"`
+			TorrentHashes         map[string]string `json:"torrent_hashes,omitempty"`
+		}{
+			Type:                  m.Type,
+			TS:                    m.TS,
+			Nodes:                 m.Nodes,
+			TorrentMagnets:        m.TorrentMagnets,
+			TorrentManifestMagnet: m.TorrentManifestMagnet,
+			TorrentHashes:         m.TorrentHashes,
+		}
 		canonical, _ := json.Marshal(payload)
 
 		sigBytes, err := base64.RawURLEncoding.DecodeString(m.Sig)
@@ -839,6 +865,7 @@ func (d *Discoverer) verify(data []byte) ([]string, map[string]string, []Notific
 	d.mu.Lock()
 	d.torrentMagnets = m.TorrentMagnets
 	d.manifestTorrentMagnet = m.TorrentManifestMagnet
+	d.torrentHashes = m.TorrentHashes
 	d.mu.Unlock()
 	return addrs, m.Regions, m.Notifications, m.NodeSNIs, m.NodeWLWTPPorts, fingerprints, loadFactors, m.IPv6Enabled, m.NavlinkMirrors, m.TorrentEnabled, nil
 }
@@ -858,6 +885,17 @@ func (d *Discoverer) ManifestTorrentMagnet() string {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.manifestTorrentMagnet
+}
+
+// TorrentHash returns the expected hex SHA-256 for the software identified
+// by slug, as covered by the manifest's Ed25519 signature, or "" if unknown.
+// Callers MUST check this against the actual downloaded bytes before
+// installing anything obtained via TorrentMagnets -- see
+// core.ApplyTorrentDownloadedZip and signedManifest's doc comment.
+func (d *Discoverer) TorrentHash(slug string) string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.torrentHashes[slug]
 }
 
 // setControls atomically replaces the control list, regions, notifications,

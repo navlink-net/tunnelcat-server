@@ -6,6 +6,7 @@ package main
 
 import (
 	"crypto/ed25519"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -114,7 +115,14 @@ func (ab *anonBootstrapCache) IsBootstrapToken(token string) bool {
 	}
 	ab.mu.RLock()
 	defer ab.mu.RUnlock()
-	return ab.token != "" && token == ab.token
+	// Constant-time compare (2026-09 security review #2): this shared
+	// bootstrap secret used to be compared with plain ==, a remote timing
+	// oracle for the exact defect the arbiter's admin token had (see
+	// checkAdminAPIToken in snc-arbiter/admin_keys.go).
+	if ab.token == "" || len(ab.token) != len(token) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(ab.token), []byte(token)) == 1
 }
 
 // IsAllowed reports whether host/ip is in the anon-bootstrap destination

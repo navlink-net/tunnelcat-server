@@ -6,6 +6,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 type jobKind string
@@ -57,9 +59,13 @@ type provisioner struct {
 	// best-effort. Empty blackbadgerBin/blackbadgerKey disables it.
 	blackbadgerBin string // local path to the blackbadger binary
 	blackbadgerKey string // shared SNC activation key installed into every instance
+
+	// knownHostsPath persists SSH host keys trust-on-first-use (see
+	// tofuHostKeyCallback). Sibling file to the arbiter's own SSH key.
+	knownHostsPath string
 }
 
-func newProvisioner(db *DB, signer ssh.Signer, setupDir, nodeBinDir, arbiterURL, sigPubkeyHex,
+func newProvisioner(db *DB, signer ssh.Signer, sshKeyFile, setupDir, nodeBinDir, arbiterURL, sigPubkeyHex,
 	serversDir, torrentDir, blackbadgerBin, blackbadgerKey string) *provisioner {
 	p := &provisioner{
 		db:               db,
@@ -72,6 +78,7 @@ func newProvisioner(db *DB, signer ssh.Signer, setupDir, nodeBinDir, arbiterURL,
 		torrentDir:       torrentDir,
 		blackbadgerBin:   blackbadgerBin,
 		blackbadgerKey:   blackbadgerKey,
+		knownHostsPath:   filepath.Join(filepath.Dir(sshKeyFile), "known_hosts"),
 		queue:            make(chan deployJob, 64),
 	}
 	go p.worker()
@@ -408,13 +415,69 @@ func (p *provisioner) connect(host, user, authMethod, password string, privKey [
 	if _, _, err := net.SplitHostPort(host); err != nil {
 		addr = net.JoinHostPort(host, "22")
 	}
+	hostKeyCB, err := tofuHostKeyCallback(p.knownHostsPath)
+	if err != nil {
+		return nil, fmt.Errorf("host key verification: %w", err)
+	}
 	cfg := &ssh.ClientConfig{
 		User:            user,
 		Auth:            auth,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), //nolint:gosec -- admin-provided IPs
+		HostKeyCallback: hostKeyCB,
 		Timeout:         60 * time.Second,
 	}
 	return ssh.Dial("tcp", addr, cfg)
+}
+
+// tofuHostKeyCallback returns an ssh.HostKeyCallback backed by a persisted
+// known_hosts-style file: a host it has never connected to before is
+// trusted and recorded, but a host whose key later changes is rejected
+// outright. Added 2026-09 security review #2 -- provisioning previously
+// used ssh.InsecureIgnoreHostKey(), so an on-path attacker present for a
+// node's very first connection (a realistic threat: initial cloud-provider
+// bring-up, or a hostile network en route to a newly rented VPS) could MITM
+// the deploy session, capturing the deploy credential or tampering with the
+// provisioning script's output undetected -- and every later reconnection
+// to that same "admin-provided IP" would have silently kept trusting
+// whatever the attacker substituted.
+func tofuHostKeyCallback(knownHostsPath string) (ssh.HostKeyCallback, error) {
+	f, err := os.OpenFile(knownHostsPath, os.O_CREATE|os.O_RDONLY, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", knownHostsPath, err)
+	}
+	f.Close()
+
+	verify, err := knownhosts.New(knownHostsPath)
+	if err != nil {
+		return nil, fmt.Errorf("parse %s: %w", knownHostsPath, err)
+	}
+
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		err := verify(hostname, remote, key)
+		if err == nil {
+			return nil
+		}
+		var keyErr *knownhosts.KeyError
+		if errors.As(err, &keyErr) && len(keyErr.Want) == 0 {
+			// Not a mismatch -- simply never seen this host before. Trust
+			// it and persist so a FUTURE connection would catch a change.
+			line := knownhosts.Line([]string{knownhosts.Normalize(hostname)}, key)
+			hf, ferr := os.OpenFile(knownHostsPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+			if ferr != nil {
+				return fmt.Errorf("tofu: record host key for %s: %w", hostname, ferr)
+			}
+			defer hf.Close()
+			if _, werr := hf.WriteString(line + "\n"); werr != nil {
+				return fmt.Errorf("tofu: record host key for %s: %w", hostname, werr)
+			}
+			logInfof("provisioner: trust-on-first-use: recorded new SSH host key for %s", hostname)
+			return nil
+		}
+		// Either a real mismatch (host key changed -- possible MITM, or the
+		// box was reimaged/re-rented under the same IP) or some other
+		// verify error. Refuse either way -- a changed key on an
+		// "admin-provided IP" is exactly the case TOFU exists to catch.
+		return fmt.Errorf("ssh host key verification failed for %s: %w", hostname, err)
+	}, nil
 }
 
 // sudoWrap wraps cmd in a non-interactive sudo shell when user is not root.

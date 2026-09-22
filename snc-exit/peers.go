@@ -21,6 +21,14 @@ type PeerEntry struct {
 	Addr         string          // host:port
 	Region       string          // ISO-3166-1 alpha-2 (e.g. "EU", "RU")
 	Capabilities map[string]bool // domain → reachable; nil = unknown (assume capable)
+	// Fingerprint is this peer's self-signed cert's SHA-256 fingerprint
+	// (colon-hex), as reported by the peer at heartbeat and signed by the
+	// arbiter in the "exits" list (see arbiter.go's fetchExitList). Empty
+	// if the arbiter hasn't recorded one yet (e.g. autocert not fetched
+	// yet) -- pinnedTLSConfig treats that the same as core's
+	// verifyPeerCertFingerprint does: an unpinned bootstrap connection, not
+	// a verification failure.
+	Fingerprint string
 }
 
 // PeerRegistry fetches and caches the list of peer exit nodes from the arbiter.
@@ -94,7 +102,7 @@ func (pr *PeerRegistry) probeAll() {
 		wg.Add(1)
 		go func(p PeerEntry) {
 			defer wg.Done()
-			alive := probePeer(p.Addr)
+			alive := probePeer(p.Addr, p.Fingerprint)
 			mu.Lock()
 			results[p.Addr] = alive
 			mu.Unlock()
@@ -120,7 +128,7 @@ func (pr *PeerRegistry) probeAll() {
 		capsWg.Add(1)
 		go func(p PeerEntry) {
 			defer capsWg.Done()
-			c := fetchPeerCapabilities(p.Addr, pr.auth.nodeToken)
+			c := fetchPeerCapabilities(p.Addr, pr.auth.nodeToken, p.Fingerprint)
 			if c != nil {
 				capsMu.Lock()
 				allCaps[p.Addr] = c
@@ -141,15 +149,17 @@ func (pr *PeerRegistry) probeAll() {
 	}
 }
 
-// probePeer returns true if a TLS connection to addr succeeds within 3 seconds.
-func probePeer(addr string) bool {
+// probePeer returns true if a TLS connection to addr succeeds within 3
+// seconds. fingerprint, if non-empty, pins the peer's cert (see
+// pinnedTLSConfig in tls.go) -- same signed-fingerprint source dialPeer uses.
+func probePeer(addr, fingerprint string) bool {
 	if !strings.Contains(addr, ":") {
 		addr = addr + ":443"
 	}
 	conn, err := tls.DialWithDialer(
 		&net.Dialer{Timeout: 3 * time.Second},
 		"tcp", addr,
-		&tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		pinnedTLSConfig(fingerprint),
 	)
 	if err != nil {
 		return false
@@ -281,20 +291,14 @@ func (pr *PeerRegistry) PeersCapableOf(domain string) []PeerEntry {
 // nil capabilities as "assume all capable"; a failed torrent-policy fetch
 // defaults to false -- an unreachable/unknown peer is never treated as a
 // valid torrent-egress target).
-func fetchPeerCapabilities(addr, nodeToken string) map[string]bool {
+func fetchPeerCapabilities(addr, nodeToken, fingerprint string) map[string]bool {
 	if !strings.Contains(addr, ":") {
 		addr = addr + ":443"
 	}
-	host, _, _ := net.SplitHostPort(addr)
 	url := "https://" + addr + "/api/peer/capabilities"
 	client := &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				ServerName:         host,
-				InsecureSkipVerify: true, //nolint:gosec
-			},
-		},
+		Timeout:   5 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: pinnedTLSConfig(fingerprint)},
 	}
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {

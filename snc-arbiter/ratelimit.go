@@ -5,6 +5,7 @@
 package main
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -152,12 +153,93 @@ func (b *tokenBucket) Allow() bool {
 	return true
 }
 
-// clientIP extracts the caller's IP from X-Forwarded-For (set by the reverse
-// proxy in front of the arbiter) or falls back to RemoteAddr.
+// trustedProxyNets lists the CIDRs allowed to set X-Forwarded-For -- set once
+// at startup by SetTrustedProxyCIDRs (see --trusted-proxy-cidrs in main.go).
+// Defaults to loopback only (the common same-host nginx-in-front-of-arbiter
+// deployment) so a fresh checkout is secure by default rather than trusting
+// XFF from anyone who can open a TCP connection.
+//
+// Added 2026-09 security review #2: clientIP previously trusted the FIRST
+// X-Forwarded-For value unconditionally. nginx's $proxy_add_x_forwarded_for
+// (deploy/setup/nginx.sh, not in this public repo, but this is the standard
+// directive) *appends* the real peer address rather than replacing a
+// client-supplied header, so a direct request carrying
+// "X-Forwarded-For: 1.2.3.4" arrived as "1.2.3.4, <real ip>" and clientIP
+// picked the attacker-chosen "1.2.3.4" -- giving every login/signup/
+// forgot-password/support-form attempt an independent rate-limit bucket on
+// demand, fully defeating loginIPLimiter and friends.
+var trustedProxyNets = mustParseCIDRs("127.0.0.1/32,::1/128")
+
+func mustParseCIDRs(csv string) []*net.IPNet {
+	nets, err := parseCIDRs(csv)
+	if err != nil {
+		panic(err) // only called with the literal default above; a bad --flag goes through SetTrustedProxyCIDRs instead
+	}
+	return nets
+}
+
+func parseCIDRs(csv string) ([]*net.IPNet, error) {
+	var out []*net.IPNet
+	for _, part := range strings.Split(csv, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		_, ipnet, err := net.ParseCIDR(part)
+		if err != nil {
+			return nil, fmt.Errorf("trusted-proxy-cidrs: invalid CIDR %q: %w", part, err)
+		}
+		out = append(out, ipnet)
+	}
+	return out, nil
+}
+
+// SetTrustedProxyCIDRs replaces the set of peer addresses clientIP will
+// accept an X-Forwarded-For header from, given a comma-separated CIDR list
+// (see --trusted-proxy-cidrs). An empty csv disables XFF trust entirely
+// (clientIP always falls back to the raw TCP peer address).
+func SetTrustedProxyCIDRs(csv string) error {
+	nets, err := parseCIDRs(csv)
+	if err != nil {
+		return err
+	}
+	trustedProxyNets = nets
+	return nil
+}
+
+func remoteAddrTrusted(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	for _, n := range trustedProxyNets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// clientIP extracts the caller's IP. X-Forwarded-For is trusted only when
+// the immediate TCP peer (r.RemoteAddr) is itself a configured trusted
+// proxy (see trustedProxyNets/SetTrustedProxyCIDRs) -- otherwise it's
+// attacker-controlled and ignored. When trusted, the LAST comma-separated
+// value is used (the one the trusted proxy itself appended via
+// $proxy_add_x_forwarded_for-style behavior), never the first (whatever the
+// original client sent, unverified).
 func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		first, _, _ := strings.Cut(xff, ",")
-		return strings.TrimSpace(first)
+	if remoteAddrTrusted(r.RemoteAddr) {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.Split(xff, ",")
+			last := strings.TrimSpace(parts[len(parts)-1])
+			if last != "" {
+				return last
+			}
+		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {

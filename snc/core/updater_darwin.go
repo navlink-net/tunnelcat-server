@@ -297,11 +297,19 @@ func extractBinaryFromDMG(dmgPath, binaryName, destPath string) error {
 
 // ApplyTorrentDownloadedDMG stages a torrent-downloaded DMG at the path
 // ApplyPendingUpdate expects (updateDMG in the same directory as the running
-// exe). The torrent engine has already verified every piece against the
-// magnet's btih, so no separate SHA-256 check is needed — same guarantee as
-// ApplyTorrentDownloadedZip on Windows. ApplyPendingUpdate (called at the
-// next launch) will mount the DMG via hdiutil and extract the real binary.
-func ApplyTorrentDownloadedDMG(dmgPath string) error {
+// exe). expectedSHA256Hex must be the manifest-signed hash for the "macos"
+// slug (Discoverer.TorrentHash) -- a BitTorrent infohash alone only proves
+// the downloaded bytes match whatever magnet the client was given, not that
+// the magnet came from the arbiter (2026-09 security review #2; see
+// signedManifest's doc comment in discovery.go). ApplyPendingUpdate (called
+// at the next launch) will mount the DMG via hdiutil and extract the real
+// binary.
+func ApplyTorrentDownloadedDMG(dmgPath string, expectedSHA256Hex string) error {
+	if err := VerifyTorrentFileHash(dmgPath, expectedSHA256Hex); err != nil {
+		os.Remove(dmgPath) //nolint:errcheck
+		Log.Printf("updater: REJECTING torrent update %s: %v", dmgPath, err)
+		return err
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("executable: %w", err)

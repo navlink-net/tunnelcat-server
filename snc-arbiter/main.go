@@ -92,10 +92,15 @@ func main() {
 	torrentSeedManifestURL := flag.String("torrent-seed-manifest-url", "", "URL of the torrent-seed fleet's published manifest.json (client software magnets); empty = TorrentMagnets field disabled")
 	torrentSeedDataDir := flag.String("torrent-seed-data-dir", "", "TORRENT_DATA_DIR of a co-located torrent-seed.sh install (same value as that script's own TORRENT_DATA_DIR, e.g. /var/lib/torrent-seed) -- if set, this arbiter periodically writes its own signed manifest into <dir>/downloads/ and a matching .torrent into <dir>/torrents/ so the already-running transmission-daemon there picks it up and seeds it; empty = TorrentManifestMagnet field disabled")
 	torrentTrackersFile := flag.String("torrent-trackers-file", "", "path to torrent-seed.sh's tracker host list (same file as its own TRACKER_LIST_FILE, e.g. /etc/torrent-seed/trackers.txt, one host per line) -- used to build the announce-list for this arbiter's own manifest torrent; empty = manifest torrent has no announce-list (DHT/PEX only)")
+	trustedProxyCIDRs := flag.String("trusted-proxy-cidrs", "127.0.0.1/32,::1/128", "comma-separated CIDRs allowed to set X-Forwarded-For (see clientIP in ratelimit.go); default trusts only a same-host reverse proxy. Set to your actual nginx/LB address(es) if it's not co-located, or to empty to disable XFF trust entirely.")
 	flag.Parse()
 
 	if *authWith == "" {
 		fmt.Fprintln(os.Stderr, "error: --auth-with is required")
+		os.Exit(1)
+	}
+	if err := SetTrustedProxyCIDRs(*trustedProxyCIDRs); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -206,7 +211,7 @@ func main() {
 			if url == "" && *domain != "" {
 				url = "https://" + *domain
 			}
-			h.provisioner = newProvisioner(db, sshSigner, *setupDir, *nodeBinDir, url, signer.pubkeyHex(),
+			h.provisioner = newProvisioner(db, sshSigner, *sshKeyFile, *setupDir, *nodeBinDir, url, signer.pubkeyHex(),
 				*serversDir, *torrentDir, *blackbadgerBin, *blackbadgerKey)
 			logInfof("provisioner: ready (setup=%s bins=%s)", *setupDir, *nodeBinDir)
 		}
