@@ -186,8 +186,8 @@ func (h *handler) apiAccountStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.db.setPendingConfirmation(email); err != nil {
-		logWarnf("account/start: setPendingConfirmation %s: %v", email, err)
+	if err := h.db.resetPendingConfirmation(email); err != nil {
+		logWarnf("account/start: resetPendingConfirmation %s: %v", email, err)
 	}
 	lang := detectLang(r)
 	if err := h.sendConfirmEmail(r, email, lang); err != nil {
@@ -270,9 +270,17 @@ func (h *handler) apiAccountLogout(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]bool{"ok": true}) //nolint:errcheck
 }
 
+// setPasswordWindow is how long after apiAccountStart created a brand-new
+// account its throwaway password may be replaced via set-password. The
+// legitimate caller (the sign-up form) does this in the same breath as start.
+const setPasswordWindow = 10 * time.Minute
+
 // apiAccountSetPassword handles POST /api/account/set-password {email, password}.
-// Only valid right after apiAccountStart created a brand-new pending account;
-// replaces the throwaway password with the one the user chose.
+// Replaces the throwaway password of an account apiAccountStart created within
+// the last setPasswordWindow and that is still unconfirmed -- enforced below via
+// pendingSignupWithin. Without that gate this would be an unauthenticated
+// "set anyone's password" endpoint (it calls forceChangePassword, which needs
+// no old password), i.e. account takeover for any known email.
 func (h *handler) apiAccountSetPassword(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email    string `json:"email"`
@@ -289,6 +297,18 @@ func (h *handler) apiAccountSetPassword(w http.ResponseWriter, r *http.Request) 
 	}
 	if len(req.Password) < 8 {
 		jsonErr(w, "Password must be at least 8 characters.", http.StatusBadRequest)
+		return
+	}
+	// Same response for "no such account", "already confirmed", "legacy
+	// account" and "window expired", so this can't be used to probe which
+	// emails are registered.
+	fresh, err := h.db.pendingSignupWithin(email, setPasswordWindow)
+	if err != nil {
+		logWarnf("account/set-password: pendingSignupWithin %s: %v", email, err)
+	}
+	if err != nil || !fresh {
+		logWarnf("account/set-password: REFUSED for %s from %s (not a fresh unconfirmed sign-up)", email, clientIP(r))
+		jsonErr(w, "The password can only be set right after sign-up. Use \"Forgot password\" to reset it.", http.StatusForbidden)
 		return
 	}
 	if err := h.auth.forceChangePassword(email, req.Password); err != nil {

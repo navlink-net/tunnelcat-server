@@ -1976,6 +1976,37 @@ func (d *DB) isUserConfirmed(username string) (bool, error) {
 	return confirmed == 1, nil
 }
 
+// resetPendingConfirmation records a brand-new unconfirmed registration and
+// (re)starts its initial-password window. Unlike setPendingConfirmation it
+// overwrites any stale row for the same username, so created_at always
+// reflects THIS registration -- see pendingSignupWithin.
+func (d *DB) resetPendingConfirmation(username string) error {
+	_, err := d.db.Exec(
+		`INSERT INTO user_confirmations (username, confirmed, source, created_at) VALUES (?,0,'navlink',?)
+		 ON CONFLICT(username) DO UPDATE SET confirmed=0, created_at=excluded.created_at`,
+		username, time.Now().Unix())
+	return err
+}
+
+// pendingSignupWithin reports whether username is a registration that is
+// still unconfirmed AND was created (by resetPendingConfirmation) no more
+// than window ago. It is the gate on /api/account/set-password: that
+// endpoint overwrites an account's password without any credential, so it
+// must only ever work for the account /api/account/start just created.
+func (d *DB) pendingSignupWithin(username string, window time.Duration) (bool, error) {
+	var confirmed, createdAt int64
+	err := d.db.QueryRow(
+		`SELECT confirmed, created_at FROM user_confirmations WHERE username=?`, username).
+		Scan(&confirmed, &createdAt)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return confirmed == 0 && time.Now().Unix()-createdAt <= int64(window/time.Second), nil
+}
+
 // createEmailToken stores a one-time token of the given type for a user.
 func (d *DB) createEmailToken(token, username, tokenType string, expiresAt time.Time) error {
 	_, err := d.db.Exec(
