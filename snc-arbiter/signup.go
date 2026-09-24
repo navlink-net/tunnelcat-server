@@ -55,6 +55,27 @@ func (h *handler) apiConfirmEmail(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, "expired", http.StatusBadRequest)
 		return
 	}
+	// A real password is generated and set here -- once, right at the fresh
+	// signup this token proves -- rather than ever being typed by the user
+	// during sign-up. pendingSignupWithin (the same gate apiAccountSetPassword
+	// uses) makes sure this only fires for a genuine new-account confirmation,
+	// never for some other use of a "confirm" token, so an existing account's
+	// password is never silently reset by this path.
+	//
+	// MUST run before setUserConfirmed below: pendingSignupWithin's whole
+	// signal is "still unconfirmed" (confirmed=0) -- flip that first and
+	// this always reads as stale, so no password is ever generated.
+	var generatedPassword string
+	if fresh, err := h.db.pendingSignupWithin(username, setPasswordWindow); err != nil {
+		logWarnf("apiConfirmEmail: pendingSignupWithin %s: %v", username, err)
+	} else if fresh {
+		generatedPassword = randomThrowawayPassword()
+		if err := h.auth.forceChangePassword(username, generatedPassword); err != nil {
+			logWarnf("apiConfirmEmail: forceChangePassword %s: %v", username, err)
+			generatedPassword = "" // don't claim a password was set/mailed if it wasn't
+		}
+	}
+
 	if err := h.db.setUserConfirmed(username); err != nil {
 		logWarnf("apiConfirmEmail: setUserConfirmed %s: %v", username, err)
 	}
@@ -62,7 +83,7 @@ func (h *handler) apiConfirmEmail(w http.ResponseWriter, r *http.Request) {
 		logWarnf("apiConfirmEmail: getOrCreateUser %s: %v", username, err)
 	}
 
-	issued, err := h.issueFreeKey(r, username, "email_confirm")
+	issued, err := h.issueFreeKey(r, username, "email_confirm", generatedPassword)
 	if err != nil {
 		logWarnf("apiConfirmEmail: issueFreeKey %s: %v", username, err)
 		jsonErr(w, "key generation failed", http.StatusInternalServerError)

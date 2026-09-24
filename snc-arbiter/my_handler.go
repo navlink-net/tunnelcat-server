@@ -200,7 +200,7 @@ func (h *handler) myNewKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	issued, err := h.issueFreeKey(r, sess.Username, "my_account")
+	issued, err := h.issueFreeKey(r, sess.Username, "my_account", "")
 	if err != nil {
 		logWarnf("my-new-key: issueKey for %s: %v", sess.Username, err)
 		jsonErr(w, "key generation failed", http.StatusInternalServerError)

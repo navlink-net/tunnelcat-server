@@ -65,7 +65,7 @@ func (h *handler) apiKeyFree(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, "Too many key requests. Please wait before requesting another.", http.StatusTooManyRequests)
 		return
 	}
-	issued, err := h.issueFreeKey(r, sess.Username, "get_key_page")
+	issued, err := h.issueFreeKey(r, sess.Username, "get_key_page", "")
 	if err != nil {
 		logWarnf("key/free: issueKey for %s: %v", sess.Username, err)
 		jsonErr(w, "key generation failed", http.StatusInternalServerError)
@@ -81,8 +81,12 @@ func (h *handler) apiKeyFree(w http.ResponseWriter, r *http.Request) {
 
 // issueFreeKey issues a perpetual key for username (region-biased by the
 // request's origin IP) and emails it asynchronously. source records which
-// page/endpoint triggered issuance (see KeyRow.Source).
-func (h *handler) issueFreeKey(r *http.Request, username, source string) (*issuedKey, error) {
+// page/endpoint triggered issuance (see KeyRow.Source). password is
+// non-empty only right after self-registration (see apiConfirmEmail): it
+// gets embedded in the same email as the key so the account has real,
+// usable email+password credentials from the start, without a second email
+// or any new endpoint. Every other caller passes "".
+func (h *handler) issueFreeKey(r *http.Request, username, source, password string) (*issuedKey, error) {
 	region := h.regionOf(r.RemoteAddr)
 	issued, err := h.issueKey(username, region, source)
 	if err != nil {
@@ -90,7 +94,7 @@ func (h *handler) issueFreeKey(r *http.Request, username, source string) (*issue
 	}
 	lang := detectLang(r)
 	go func() {
-		html, err := h.renderKeyEmail(lang, username, issued.KeyStr)
+		html, err := h.renderKeyEmail(lang, username, issued.KeyStr, password)
 		if err != nil {
 			logWarnf("issueFreeKey: render key email for %s: %v", username, err)
 			return
@@ -103,8 +107,10 @@ func (h *handler) issueFreeKey(r *http.Request, username, source string) (*issue
 	return issued, nil
 }
 
-// renderKeyEmail renders the key-delivery email. Keys are always perpetual now.
-func (h *handler) renderKeyEmail(lang, email, key string) (string, error) {
+// renderKeyEmail renders the key-delivery email. Keys are always perpetual
+// now. password is only set right after self-registration -- see
+// issueFreeKey's doc comment -- and the template shows it only when non-empty.
+func (h *handler) renderKeyEmail(lang, email, key, password string) (string, error) {
 	tmpl, ok := h.emailTmpls["email_key_issued.html"]
 	if !ok {
 		return "", fmt.Errorf("email_key_issued.html template not loaded")
@@ -115,11 +121,13 @@ func (h *handler) renderKeyEmail(lang, email, key string) (string, error) {
 		Lang         string
 		Email        string
 		Key          string
+		Password     string
 		QRCodeBase64 string
 	}{
 		Lang:         lang,
 		Email:        email,
 		Key:          key,
+		Password:     password,
 		QRCodeBase64: qrBase64,
 	})
 	return buf.String(), err

@@ -43,6 +43,26 @@
       </td></tr>
     </table>
 
+    {{if .Password}}
+    <!-- Generated account password (self-registration only: the user never
+         types a password during sign-up, so it's delivered here) -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 28px">
+      <tr><td style="background:#000020;border:1px solid rgba(125,220,255,.18);border-radius:8px;padding:18px 22px">
+        <p style="margin:0 0 8px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:rgba(125,220,255,.45)">
+          {{if eq .Lang "ru"}}Пароль от аккаунта{{else}}Account password{{end}}
+        </p>
+        <code style="font-family:'Courier New',Courier,monospace;font-size:14px;line-height:1.7;color:#7dd3fc">{{.Password}}</code>
+        <p style="margin:8px 0 0;font-size:12px;color:rgba(232,236,244,.4)">
+          {{if eq .Lang "ru"}}
+            Логин — этот email. Используйте email и пароль, чтобы войти в приложении.
+          {{else}}
+            Username is this email address. Use this email and password to log in in the app.
+          {{end}}
+        </p>
+      </td></tr>
+    </table>
+    {{end}}
+
     <!-- Activate / download CTA -->
     <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px">
       <tr><td style="text-align:center;padding:20px 22px;background:rgba(125,220,255,.04);border:1px solid rgba(125,220,255,.08);border-radius:8px">
